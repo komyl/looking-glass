@@ -307,7 +307,7 @@ During reload the old snapshot remains in memory and continues serving requests 
 
 ## Nginx Configuration
 
-Create `/etc/nginx/sites-available/bgpx`:
+Create `/etc/nginx/sites-available/lookinglass`:
 
 ```nginx
 server {
