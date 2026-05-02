@@ -1,0 +1,35 @@
+# Binaries
+looking-glass
+looking-glass-agent
+agent
+mrt2json
+ 
+# BGP data
+*.gz
+*.bz2
+*.tar
+*.zip
+*.json.tmp
+ 
+# GeoIP databases
+*.mmdb
+ 
+# Environment
+.env
+ 
+# BGP processed data (large files, generated)
+/var/lib/looking-glass/
+ 
+# Go build cache
+*.test
+*.out
+ 
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+ 
+# OS
+.DS_Store
+Thumbs.db

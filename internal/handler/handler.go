@@ -1,0 +1,440 @@
+package handler
+
+import (
+	"bufio"
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"looking-glass/internal/bgp"
+	"looking-glass/internal/ratelimit"
+	"looking-glass/internal/validator"
+)
+
+type Handler struct {
+	store     *bgp.Store
+	rl        *ratelimit.Limiter
+	index     []byte
+	semaphore chan struct{}
+	ipSem     sync.Map
+}
+
+func New(store *bgp.Store, rl *ratelimit.Limiter, indexHTML []byte) *Handler {
+	return &Handler{
+		store:     store,
+		rl:        rl,
+		index:     indexHTML,
+		semaphore: make(chan struct{}, 30),
+	}
+}
+
+func (h *Handler) acquireIP(ip string) bool {
+	ch, _ := h.ipSem.LoadOrStore(ip, make(chan struct{}, 1))
+	select {
+	case ch.(chan struct{}) <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Handler) releaseIP(ip string) {
+	if ch, ok := h.ipSem.Load(ip); ok {
+		select {
+		case <-ch.(chan struct{}):
+		default:
+		}
+	}
+}
+
+func clientIP(r *http.Request) string {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		first := strings.TrimSpace(strings.SplitN(v, ",", 2)[0])
+		if ip := net.ParseIP(first); ip != nil {
+			return ip.String()
+		}
+	}
+	if v := r.Header.Get("X-Real-IP"); v != "" {
+		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+			return ip.String()
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func sseHeaders(w http.ResponseWriter) (http.Flusher, bool) {
+	f, ok := w.(http.Flusher)
+	if !ok {
+		return nil, false
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	return f, true
+}
+
+func sseLine(w http.ResponseWriter, f http.Flusher, data string) {
+	for _, line := range strings.Split(data, "\n") {
+		fmt.Fprintf(w, "data: %s\n\n", line)
+	}
+	f.Flush()
+}
+
+func sseDone(w http.ResponseWriter, f http.Flusher) {
+	fmt.Fprintf(w, "data: [DONE]\n\n")
+	f.Flush()
+}
+
+func sseErr(w http.ResponseWriter, f http.Flusher, msg string) {
+	fmt.Fprintf(w, "data: [ERROR] %s\n\n", msg)
+	f.Flush()
+}
+
+func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(h.index)
+}
+
+func (h *Handler) MyIP(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]string{"ip": clientIP(r)})
+}
+
+func (h *Handler) Info(w http.ResponseWriter, r *http.Request) {
+	count, loadedAt := h.store.Stats()
+	updated := "not loaded"
+	if !loadedAt.IsZero() {
+		updated = loadedAt.UTC().Format("2006-01-02 15:04 UTC")
+	}
+	writeJSON(w, map[string]any{
+		"route_count": count,
+		"bgp_updated": updated,
+	})
+}
+
+func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+	count := 5
+	if n, err := strconv.Atoi(r.URL.Query().Get("count")); err == nil && n >= 1 && n <= 20 {
+		count = n
+	}
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	select {
+	case h.semaphore <- struct{}{}:
+		defer func() { <-h.semaphore }()
+	default:
+		sseErr(w, flusher, "server busy — too many concurrent requests")
+		return
+	}
+	ip := clientIP(r)
+	if !h.acquireIP(ip) {
+		sseErr(w, flusher, "you already have an active request — please wait")
+		return
+	}
+	defer h.releaseIP(ip)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), "-W", "2", "-i", "0.5", target)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseErr(w, flusher, "internal error: "+err.Error())
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		sseErr(w, flusher, "ping failed to start: "+err.Error())
+		return
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		select {
+		case <-r.Context().Done():
+			cmd.Process.Kill()
+			return
+		default:
+		}
+		sseLine(w, flusher, scanner.Text())
+	}
+	cmd.Wait()
+	sseDone(w, flusher)
+}
+
+func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+	maxHops := 30
+	if n, err := strconv.Atoi(r.URL.Query().Get("maxhops")); err == nil && n >= 5 && n <= 64 {
+		maxHops = n
+	}
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	select {
+	case h.semaphore <- struct{}{}:
+		defer func() { <-h.semaphore }()
+	default:
+		sseErr(w, flusher, "server busy — too many concurrent requests")
+		return
+	}
+	ip := clientIP(r)
+	if !h.acquireIP(ip) {
+		sseErr(w, flusher, "you already have an active request — please wait")
+		return
+	}
+	defer h.releaseIP(ip)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "traceroute", "-n", "-w", "2", "-m", strconv.Itoa(maxHops), target)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseErr(w, flusher, "internal error: "+err.Error())
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		sseErr(w, flusher, "traceroute not available: "+err.Error())
+		return
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		select {
+		case <-r.Context().Done():
+			cmd.Process.Kill()
+			return
+		default:
+		}
+		sseLine(w, flusher, scanner.Text())
+	}
+	cmd.Wait()
+	sseDone(w, flusher)
+}
+
+func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+	qtype := r.URL.Query().Get("qtype")
+	switch qtype {
+	case "A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA", "PTR":
+	default:
+		qtype = "A"
+	}
+	flusher, ok := sseHeaders(w)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	select {
+	case h.semaphore <- struct{}{}:
+		defer func() { <-h.semaphore }()
+	default:
+		sseErr(w, flusher, "server busy — too many concurrent requests")
+		return
+	}
+	ip := clientIP(r)
+	if !h.acquireIP(ip) {
+		sseErr(w, flusher, "you already have an active request — please wait")
+		return
+	}
+	defer h.releaseIP(ip)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "dig", "@YOUR_DNS_SERVER", "+noall", "+answer", "+comments", target, qtype)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		sseErr(w, flusher, "internal error: "+err.Error())
+		return
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		sseErr(w, flusher, "dig failed to start: "+err.Error())
+		return
+	}
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		select {
+		case <-r.Context().Done():
+			cmd.Process.Kill()
+			return
+		default:
+		}
+		sseLine(w, flusher, scanner.Text())
+	}
+	cmd.Wait()
+	sseDone(w, flusher)
+}
+
+func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
+	qtype := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("type")))
+	query := strings.TrimSpace(r.URL.Query().Get("query"))
+	if query == "" {
+		writeError(w, "query parameter is required", http.StatusBadRequest)
+		return
+	}
+	var routes []bgp.Route
+	var lookupErr error
+	switch qtype {
+	case "ip":
+		if err := validator.ValidateTarget(query); err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		routes, lookupErr = h.store.LookupIP(query)
+	case "prefix":
+		if err := validator.ValidatePrefix(query); err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		routes, lookupErr = h.store.LookupPrefix(query)
+	case "asn":
+		asn, err := validator.ValidateASN(query)
+		if err != nil {
+			writeError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		routes = h.store.LookupASN(asn)
+	default:
+		writeError(w, "type must be ip, prefix, or asn", http.StatusBadRequest)
+		return
+	}
+	if lookupErr != nil {
+		writeError(w, lookupErr.Error(), http.StatusBadRequest)
+		return
+	}
+	if routes == nil {
+		routes = []bgp.Route{}
+	}
+	writeJSON(w, map[string]any{
+		"count":  len(routes),
+		"routes": routes,
+	})
+}
+
+func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+	host := target
+	port := "443"
+	if strings.Contains(target, ":") {
+		var err error
+		host, port, err = net.SplitHostPort(target)
+		if err != nil {
+			writeError(w, "invalid host:port", http.StatusBadRequest)
+			return
+		}
+	}
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	addr := net.JoinHostPort(host, port)
+	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+		ServerName: host,
+	})
+	type result struct {
+		Valid     bool     `json:"valid"`
+		Error     string   `json:"error,omitempty"`
+		Subject   string   `json:"subject,omitempty"`
+		Issuer    string   `json:"issuer,omitempty"`
+		NotBefore string   `json:"not_before,omitempty"`
+		NotAfter  string   `json:"not_after,omitempty"`
+		DaysLeft  int      `json:"days_left,omitempty"`
+		SANs      []string `json:"sans,omitempty"`
+	}
+	extractCert := func(conn *tls.Conn) result {
+		certs := conn.ConnectionState().PeerCertificates
+		if len(certs) == 0 {
+			return result{Valid: false, Error: "no certificate returned"}
+		}
+		cert := certs[0]
+		now := time.Now()
+		return result{
+			Valid:     err == nil,
+			Subject:   cert.Subject.CommonName,
+			Issuer:    cert.Issuer.CommonName,
+			NotBefore: cert.NotBefore.UTC().Format("2006-01-02 15:04:05 UTC"),
+			NotAfter:  cert.NotAfter.UTC().Format("2006-01-02 15:04:05 UTC"),
+			DaysLeft:  int(cert.NotAfter.Sub(now).Hours() / 24),
+			SANs:      cert.DNSNames,
+		}
+	}
+	if err != nil {
+		conn2, err2 := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         host,
+		})
+		if err2 != nil {
+			writeJSON(w, result{Valid: false, Error: err.Error()})
+			return
+		}
+		defer conn2.Close()
+		res := extractCert(conn2)
+		res.Valid = false
+		res.Error = err.Error()
+		writeJSON(w, res)
+		return
+	}
+	defer conn.Close()
+	writeJSON(w, extractCert(conn))
+}
