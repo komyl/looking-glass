@@ -259,6 +259,23 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 ```
 
 ---
+### Port Check
+
+Port check requests are routed through agent nodes, not the master. The master proxies the request to the selected agent, which performs a single TCP connect with a 5-second timeout and returns the result as JSON.
+
+**Statuses:**
+
+| Status | Meaning |
+|---|---|
+| `open` | TCP handshake succeeded |
+| `closed` | Connection refused — port actively rejected |
+| `filtered` | Timeout, no response — firewall drop or DNS failure |
+
+**Input normalization:** `http://` and `https://` prefixes are stripped automatically on both the master and agent before the check is performed. A request for `https://example.ir` is treated identically to `example.ir`.
+
+**DNS:** Each agent uses its own system resolver. If an agent cannot resolve a hostname, the result will be `filtered` with an `i/o timeout` detail. This is expected behavior for agents with restricted or misconfigured DNS. Supply an IP address directly to bypass resolution entirely.
+
+**Adding port check to a new agent:** no additional configuration is required. The `/portcheck` endpoint is part of the standard agent binary and is active by default.
 
 ## BGP Data
 

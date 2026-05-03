@@ -208,6 +208,10 @@ footer a{color:var(--accent);text-decoration:none}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
       <span>DNS</span>
     </button>
+    <button class="tab" id="tab-port" onclick="switchTab('port')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2"/></svg>
+      <span>Port</span>
+    </button>
     <button class="tab" id="tab-ssl" onclick="switchTab('ssl')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
       <span>SSL</span>
@@ -339,6 +343,37 @@ footer a{color:var(--accent);text-decoration:none}
       <pre class="terminal" id="dig-out"><span class="ph">Enter a domain and press Lookup</span></pre>
     </div>
   </div>
+  <!-- PORT CHECK -->
+  <div class="panel" id="panel-port">
+    <div class="card">
+      <div class="form-row">
+        <div class="fg">
+          <label>Target</label>
+          <input type="text" id="port-target" placeholder="example.ir or 1.2.3.4" autocomplete="off" autocorrect="off" spellcheck="false"/>
+        </div>
+        <div class="fg narrow">
+          <label>Port</label>
+          <input type="text" id="port-port" placeholder="443" autocomplete="off" spellcheck="false" style="width:90px"/>
+        </div>
+        <div class="fg narrow">
+          <label>Source Node</label>
+          <select id="port-node"></select>
+        </div>
+        <div class="fg narrow">
+          <label>&nbsp;</label>
+          <button class="btn btn-run" onclick="runPort()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            Check
+          </button>
+        </div>
+      </div>
+      <div class="out-header">
+        <span class="out-label">Result</span>
+        <span class="status"><span class="dot" id="port-dot"></span><span id="port-stxt">Ready</span></span>
+      </div>
+      <div class="bgp-out" id="port-out"><span class="ph">Enter a target and port, then press Check</span></div>
+    </div>
+  </div>
   <!-- SSL -->
   <div class="panel" id="panel-ssl">
     <div class="card">
@@ -412,7 +447,7 @@ footer a{color:var(--accent);text-decoration:none}
 
 <script>
 'use strict';
-function switchTab(name){['ping','traceroute','dig','ssl','bgp'].forEach(n=>{document.getElementById('tab-'+n).classList.toggle('active',n===name);document.getElementById('panel-'+n).classList.toggle('active',n===name)})}
+function switchTab(name){['ping','traceroute','dig','port','ssl','bgp'].forEach(n=>{document.getElementById('tab-'+n).classList.toggle('active',n===name);document.getElementById('panel-'+n).classList.toggle('active',n===name)})}
 function setStatus(id,state,text){document.getElementById(id+'-dot').className='dot'+(state?' '+state:'');document.getElementById(id+'-stxt').textContent=text}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function highlight(raw){
@@ -441,6 +476,7 @@ fetch('/api/nodes')
     const opts=nodes.map(n=>`<option value="${n.id}">${n.name}</option>`).join('');
     document.getElementById('ping-node').innerHTML=opts;
     document.getElementById('tr-node').innerHTML=opts;
+    document.getElementById('port-node').innerHTML=opts;
   })
   .catch(()=>{});
 fetch('/api/myip').then(r=>r.json()).then(d=>{document.getElementById('clientIP').textContent=d.ip||'unknown'}).catch(()=>{document.getElementById('clientIP').textContent='unknown'});
@@ -619,6 +655,35 @@ ${warn}
     .catch(err=>{setStatus('ssl','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
 }
 document.getElementById('ssl-target').addEventListener('keydown',e=>{if(e.key==='Enter')runSSL()});
+function runPort(){
+  const target=document.getElementById('port-target').value.trim();
+  const port=document.getElementById('port-port').value.trim();
+  const node=document.getElementById('port-node').value;
+  if(!target||!port)return;
+  const out=document.getElementById('port-out');
+  out.innerHTML='<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
+  setStatus('port','run','Checking...');
+  fetch('/api/portcheck?node='+encodeURIComponent(node)+'&target='+encodeURIComponent(target)+'&port='+encodeURIComponent(port))
+    .then(r=>r.json())
+    .then(d=>{
+      if(d.error&&!d.status){setStatus('port','err','Error');out.innerHTML=`<span class="t-err">${esc(d.error)}</span>`;return}
+      const color=d.status==='open'?'var(--green)':d.status==='closed'?'var(--red)':'var(--yellow)';
+      const badge=`<span style="color:${color};font-weight:700;font-size:16px;text-transform:uppercase">${esc(d.status)}</span>`;
+      const latency=d.latency_ms!=null?`<div class="rattr"><div class="rattr-k">Latency</div><div class="rattr-v" style="color:var(--green)">${d.latency_ms} ms</div></div>`:'';
+      const errRow=d.error?`<div class="rattr wide"><div class="rattr-k">Detail</div><div class="rattr-v" style="color:var(--muted2)">${esc(d.error)}</div></div>`:'';
+      setStatus('port',d.status==='open'?'ok':'err',d.status);
+      out.innerHTML=`<div class="rcard">
+<div class="rprefix">${badge}</div>
+<div class="rattrs">
+<div class="rattr"><div class="rattr-k">Target</div><div class="rattr-v">${esc(d.target)}</div></div>
+<div class="rattr"><div class="rattr-k">Port</div><div class="rattr-v">${esc(String(d.port))}</div></div>
+${latency}${errRow}
+</div></div>`;
+    })
+    .catch(err=>{setStatus('port','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
+}
+document.getElementById('port-target').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
+document.getElementById('port-port').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
 </script>
 </body>
 </html>

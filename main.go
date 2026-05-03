@@ -38,8 +38,9 @@ func main() {
 	mux.HandleFunc("GET /api/bgp", h.BGP)
 	mux.HandleFunc("GET /api/dig", h.Dig)
 	mux.HandleFunc("GET /api/ssl", h.SSLCheck)
-        mux.HandleFunc("GET /api/nodes", h.Nodes)
-        mux.HandleFunc("GET /api/proxy", h.Proxy)
+	mux.HandleFunc("GET /api/nodes", h.Nodes)
+	mux.HandleFunc("GET /api/proxy", h.Proxy)
+	mux.HandleFunc("GET /api/portcheck", h.PortCheck)
 
 	srv := &http.Server{
 		Addr:         listenAddr,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,10 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	nodeID := r.URL.Query().Get("node")
 	action := r.URL.Query().Get("action")
 	target := r.URL.Query().Get("target")
+	target = strings.TrimPrefix(target, "https://")
+	target = strings.TrimPrefix(target, "http://")
+	target = strings.TrimSuffix(target, "/")
+	target = strings.Split(target, "/")[0]
 
 	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
 		writeError(w, "invalid target", http.StatusBadRequest)
@@ -41,9 +46,9 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch action {
-	case "ping", "traceroute":
+	case "ping", "traceroute", "portcheck":
 	default:
-		writeError(w, "action must be ping or traceroute", http.StatusBadRequest)
+		writeError(w, "action must be ping, traceroute, or portcheck", http.StatusBadRequest)
 		return
 	}
 
@@ -123,4 +128,62 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 func writeJSONNodes(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(v)
+}
+func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.URL.Query().Get("node")
+	target := r.URL.Query().Get("target")
+	portStr := r.URL.Query().Get("port")
+
+	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
+		writeError(w, "invalid target", http.StatusBadRequest)
+		return
+	}
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		writeError(w, "invalid port", http.StatusBadRequest)
+		return
+	}
+
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+
+	var node *nodes.Node
+	for i := range nodes.List {
+		if nodes.List[i].ID == nodeID {
+			node = &nodes.List[i]
+			break
+		}
+	}
+	if node == nil {
+		writeError(w, "unknown node", http.StatusBadRequest)
+		return
+	}
+
+	agentURL := fmt.Sprintf("%s/portcheck?target=%s&port=%s",
+		node.URL,
+		target,
+		portStr,
+	)
+
+	req, err := http.NewRequestWithContext(r.Context(), "GET", agentURL, nil)
+	if err != nil {
+		writeError(w, "internal error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("X-Agent-Secret", nodes.Secret)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeError(w, "agent unreachable: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.Copy(w, resp.Body)
 }
