@@ -1,142 +1,166 @@
-# Looking Glass
+# looking-glass
 
-A high-performance, self-hosted network looking glass written in Go. Designed for ISPs, data centers, and network operators who require full control over their infrastructure with zero external dependencies at runtime.
+A self-hosted network looking glass written in Go. Built for ISPs, data centers, and network operators who need full runtime autonomy — no external API calls, no CDN dependencies, no telemetry.
 
-Supports multi-node distributed probing, BGP route lookup from local MRT dumps, DNS resolution, SSL certificate inspection, and real-time streaming of ping and traceroute via Server-Sent Events.
-
----
-
-## Table of Contents
-
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Building](#building)
-- [Master Node Setup](#master-node-setup)
-- [Agent Node Setup](#agent-node-setup)
-- [BGP Data](#bgp-data)
-- [Nginx Configuration](#nginx-configuration)
-- [systemd Services](#systemd-services)
-- [Adding a New Node](#adding-a-new-node)
-- [Security](#security)
-- [File Layout](#file-layout)
+The system is split into two binaries: a **master** that serves the UI, holds the BGP table in memory, and orchestrates probes; and an **agent** that runs on each measurement node and executes the actual network operations. Communication between master and agents uses plain HTTP with a pre-shared secret over private networking.
 
 ---
 
-## Architecture
+## Features
 
-The system consists of two binaries:
+### Network probing
+- **Ping** — runs against all nodes simultaneously. Results rendered in a table: sent/received, loss%, RTT min/avg/max per node. No node selection required.
+- **Traceroute** — user selects source node. Output streamed in real time via SSE.
+- **Port check** — single TCP connect to target:port with 5s timeout. Returns `open`, `closed`, or `filtered`. Supports direct IP or hostname. `http://` and `https://` prefixes are stripped before resolution.
+- **DNS lookup** — executes `dig` on the master against a configured resolver. Supports A, AAAA, MX, NS, TXT, CNAME, SOA, PTR.
+- **SSL certificate inspection** — direct TLS dial to target:443 (or custom port). Returns subject, issuer, validity window, days remaining, SANs. On validation failure, falls back to `InsecureSkipVerify` and reports the cert alongside the error.
 
-**`looking-glass`** — the master process. Serves the web UI, handles BGP lookups from an in-memory radix trie, and proxies probe requests to agent nodes over HTTP with a shared secret. Runs on the primary node only.
+### BGP routing table
+- Loaded from a local JSON file converted from MRT TABLE_DUMP2 format (RIPE RIS, RouteViews, or any compliant source).
+- IPv4 and IPv6 prefix lookup via binary radix trie — O(32) and O(128) worst case respectively.
+- Lookup modes: longest-prefix match by IP, exact prefix, ASN (returns up to 1000 routes whose AS-path contains the queried ASN).
+- Hot-reload: the store polls the file's mtime every 5 minutes and swaps the snapshot atomically. Old data continues serving during reload. No restart required.
+- Memory footprint: a full global BGP table (~1.4M prefixes) loads into approximately 2 GB RSS.
 
-**`agent`** — a lightweight probe daemon. Executes `ping` and `traceroute` and streams results back to the master via SSE. Runs on every node including the primary.
+### Client IP detection
+Reads `X-Forwarded-For` first, then `X-Real-IP`, then `RemoteAddr`. Works correctly behind nginx or any reverse proxy that sets standard forwarding headers.
+
+### Rate limiting
+Three independent layers:
+1. nginx `limit_req` — 20 req/s per IP on general traffic, 6 req/min on `/api/`.
+2. Application-level token bucket — 20 req/min per IP, burst 5, in-process, no Redis.
+3. Per-IP subprocess semaphore — each IP may hold at most one active ping/traceroute/dig process at a time, backed by `sync.Map` of buffered channels.
+
+Global subprocess semaphore caps total concurrent `exec.Command` invocations at 30.
+
+---
+
+## Design decisions
+
+**Next-hop is not shown for BGP results.** The MRT dump is collected from a single RIPE RIS collector peer. Every route's next-hop reflects that peer's perspective, not the local routing table. Displaying it would be misleading. The kernel FIB (`ip route get`) was evaluated as an alternative but returns only the default gateway on a typical VPS. AS Path, origin, and communities are shown instead.
+
+**No GeoIP.** A MaxMind GeoLite2 reader was implemented in pure Go (no cgo, no external libraries). The reader correctly parsed metadata and traversed the radix trie but triggered goroutine stack overflow on deeply nested pointer chains in the MMDB data section. The fix (depth cap at 64) was implemented but the feature was deferred to avoid destabilizing production during initial rollout. The reader is present in the repository and can be re-enabled.
+
+**SSE over WebSocket for streaming.** Traceroute and single-node ping stream output line-by-line via Server-Sent Events. SSE was chosen because it is unidirectional, trivially proxied through nginx with `proxy_buffering off`, and requires no connection upgrade. The `X-Accel-Buffering: no` response header disables nginx's internal buffer for proxied SSE responses.
+
+**Ping changed from single-node SSE to parallel JSON.** The original ping implementation mirrored traceroute — one node, output streamed. This was replaced with a fan-out model: the master fires concurrent goroutines to all agents, each agent parses its own `ping` output and returns structured JSON, and the master collects all results in a single HTTP response. The UI renders a table with RTT and loss per node.
+
+---
+
+## Repository layout
 
 ```
-                        ┌─────────────────────────────┐
-                        │        Master Node           │
-         User ──HTTPS──▶│   nginx → looking-glass      │
-                        │       port 8082               │
-                        │                              │
-                        │   agent (127.0.0.1:9090)     │
-                        └──────────┬───────────────────┘
-                                   │ HTTP + X-Agent-Secret
-                    ┌──────────────┼──────────────┐
-                    ▼              ▼              ▼
-              Node 1               Node 2       Node 3
-             agent:9090          agent:9090    agent:9090
+.
+├── main.go                    # Master entry point, mux registration
+├── go.mod
+├── web/
+│   └── index.html             # Full UI, embedded into binary at build time via //go:embed
+├── cmd/
+│   ├── agent/
+│   │   └── main.go            # Agent binary: ping, traceroute, portcheck, ping-summary
+│   └── mrt2json/
+│       └── main.go            # Offline MRT-to-JSON converter
+└── internal/
+    ├── bgp/
+    │   ├── store.go           # JSON loader, mtime watcher, atomic snapshot swap
+    │   └── trie.go            # IPv4/IPv6 binary radix trie
+    ├── handler/
+    │   ├── handler.go         # HTTP handlers: myip, info, ping, traceroute, dig, ssl, bgp
+    │   └── proxy.go           # /api/nodes, /api/proxy, /api/portcheck, /api/ping-all
+    ├── nodes/
+    │   └── nodes.go           # Node registry (ID, name, ISP, internal URL, shared secret)
+    ├── ratelimit/
+    │   └── limit.go           # Token bucket, per-key, cleanup goroutine
+    └── validator/
+        └── valid.go           # Target sanitization (IP, hostname, CIDR, ASN)
 ```
 
-BGP data is loaded from a local JSON file (converted from MRT dump). The store uses an atomic pointer swap on reload — zero downtime, no locks on the hot path.
+Runtime data:
 
-Rate limiting is token bucket per IP at the application layer, with a separate nginx `limit_req` zone for the `/api/` path. Each IP is additionally constrained to one concurrent subprocess via a per-IP semaphore backed by `sync.Map`.
+```
+/var/lib/looking-glass/
+└── bgp.json                   # Processed routing table (~260 MB for full global table)
 
----
-
-## Requirements
-
-### Master Node
-- Ubuntu 24.04 / Debian 13
-- Go 1.22+
-- nginx
-- `traceroute`, `dnsutils` (`dig`)
-- `bgpdump` (for MRT processing)
-- fail2ban
-- ufw
-- Minimum: 4 cores, 8 GB RAM (BGP JSON loads ~2 GB into memory)
-
-### Agent Nodes
-- Ubuntu 24.04 / Debian 13
-- `ping`, `traceroute` (from `iputils-ping`, `traceroute`)
-- Minimum: 2 cores, 4 GB RAM
-
-### Build Host
-Any machine with Go 1.22+ installed. Cross-compilation is supported.
+/usr/local/bin/
+├── looking-glass              # Master binary (~6 MB stripped)
+└── looking-glass-agent        # Agent binary (~5 MB stripped)
+```
 
 ---
 
 ## Building
 
-Clone or extract the source into `/opt/somename/looking-glass`.
+Requires Go 1.22 or later. No external Go dependencies — stdlib only.
 
 ```sh
-cd /opt/somename/looking-glass
-
-# Build master binary
+# Master
 go build -ldflags="-s -w" -trimpath -o looking-glass .
 
-# Build agent binary (Linux amd64)
+# Agent (cross-compile for Linux amd64 from any platform)
 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o agent ./cmd/agent/
 
-# Build MRT converter
+# MRT converter (run once per data update, not deployed)
 go build -ldflags="-s -w" -trimpath -o mrt2json ./cmd/mrt2json/
 ```
 
-The master binary embeds `web/index.html` at compile time via `//go:embed`. Any change to the HTML requires a rebuild.
+The HTML UI is embedded at compile time. Any edit to `web/index.html` requires a rebuild and service restart.
 
 ---
 
-## Master Node Setup
+## BGP data
 
-### 1. Install system packages
+The converter reads TABLE_DUMP2 MRT files. It deduplicates prefixes (first-seen wins), skips malformed records, and writes a flat JSON array.
+
+Download a full RIB snapshot:
+
+```sh
+wget https://data.ris.ripe.net/rrc00/latest-bview.gz
+```
+
+Convert:
+
+```sh
+./mrt2json latest-bview.gz /var/lib/looking-glass/bgp.json
+```
+
+Processing a full table (~1.4M unique prefixes) takes 10–15 minutes. The resulting file is ~260 MB. The service auto-reloads when the file changes; to force immediate reload restart the service.
+
+JSON schema:
+
+```json
+{
+  "timestamp": 1746000000,
+  "routes": [
+    {
+      "prefix":      "1.0.0.0/24",
+      "nexthop":     "80.77.16.114",
+      "aspath":      [13335, 15169],
+      "origin":      "igp",
+      "localpref":   100,
+      "med":         0,
+      "communities": ["13335:10000"]
+    }
+  ]
+}
+```
+
+---
+
+## Deployment
+
+### Master node
+
+Requirements: Debian 13 or Ubuntu 24.04, 4+ cores, 8+ GB RAM, nginx.
 
 ```sh
 apt update
 apt install -y nginx traceroute dnsutils bgpdump fail2ban ufw
-```
 
-### 2. Create directory layout
-
-```sh
 mkdir -p /var/lib/looking-glass
 cp looking-glass /usr/local/bin/looking-glass
 ```
 
-### 3. Prepare BGP data
-
-Download an MRT RIB dump from RIPE RIS:
-
-```sh
-# rrc00 = Amsterdam, full table, ~80 MB compressed
-wget https://data.ris.ripe.net/rrc00/latest-bview.gz
-```
-
-Convert to the internal JSON format:
-
-```sh
-./mrt2json latest-bview.gz /var/lib/looking-glass/bgp.json
-```
-
-This produces a flat JSON file of ~260 MB. Conversion takes 10–15 minutes depending on CPU. The master hot-reloads automatically when the file modification time changes (checked every 5 minutes). To force an immediate reload, restart the service.
-
-Update BGP data on a schedule by replacing the file and restarting:
-
-```sh
-# Run from cron or a deploy script on an external machine
-wget -q https://data.ris.ripe.net/rrc00/latest-bview.gz -O latest-bview.gz
-./mrt2json latest-bview.gz /var/lib/looking-glass/bgp.json
-systemctl restart looking-glass
-```
-
-### 4. Install the master service
+Service unit:
 
 ```sh
 cat > /etc/systemd/system/looking-glass.service << 'EOF'
@@ -147,7 +171,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/komyl/looking-glass
+WorkingDirectory=/opt/looking-glass
 Environment=BGP_DATA_PATH=/var/lib/looking-glass/bgp.json
 Environment=LISTEN_ADDR=127.0.0.1:8082
 ExecStart=/usr/local/bin/looking-glass
@@ -162,59 +186,35 @@ systemctl daemon-reload
 systemctl enable --now looking-glass
 ```
 
-### 5. Verify
+Verify:
 
 ```sh
 curl -s http://127.0.0.1:8082/api/info
-# {"bgp_updated":"2026-04-29 22:36 UTC","route_count":1374785}
 ```
 
----
+### Agent nodes
 
-## Agent Node Setup
-
-The agent runs on every probe node, including the master. On the master it binds to `127.0.0.1:9090`. On remote nodes it binds to `0.0.0.0:9090` and must be firewalled to accept connections only from the master's IP.
-
-### 1. Copy the binary
+Requirements: Debian 13 or Ubuntu 24.04, 2+ cores, 4+ GB RAM.
 
 ```sh
-# From the master node
+apt update && apt install -y iputils-ping traceroute
+```
+
+Copy binary from master build host:
+
+```sh
+ssh root@<NODE_IP> systemctl stop looking-glass-agent
 scp agent root@<NODE_IP>:/usr/local/bin/looking-glass-agent
-chmod +x /usr/local/bin/looking-glass-agent
+ssh root@<NODE_IP> systemctl start looking-glass-agent
 ```
 
-### 2. Install system packages on the agent node
+Generate shared secret once, reuse across all nodes:
 
 ```sh
-apt update
-apt install -y iputils-ping traceroute
+openssl rand -hex 32
 ```
 
-### 3. Install the agent service
-
-**On the master node** (`LISTEN_ADDR=127.0.0.1:9090`):
-
-```sh
-cat > /etc/systemd/system/looking-glass-agent.service << 'EOF'
-[Unit]
-Description=Looking Glass Agent
-After=network.target
-
-[Service]
-Type=simple
-Environment=AGENT_SECRET=<YOUR_SECRET>
-Environment=LISTEN_ADDR=127.0.0.1:9090
-ExecStart=/usr/local/bin/looking-glass-agent
-Restart=on-failure
-RestartSec=5
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-**On remote agent nodes** (`LISTEN_ADDR=0.0.0.0:9090`):
+Service unit (remote nodes bind `0.0.0.0:9090`; master binds `127.0.0.1:9090`):
 
 ```sh
 cat > /etc/systemd/system/looking-glass-agent.service << 'EOF'
@@ -234,326 +234,155 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 EOF
-```
 
-```sh
 systemctl daemon-reload
 systemctl enable --now looking-glass-agent
 ```
 
-### 4. Generate the shared secret
-
-Generate once and use the same value across all nodes:
-
-```sh
-openssl rand -hex 32
-```
-
-Set this value as `AGENT_SECRET` in every service file.
-
-### 5. Verify agent connectivity
+Verify from master:
 
 ```sh
 curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
-# ok
 ```
 
----
-### Port Check
-
-Port check requests are routed through agent nodes, not the master. The master proxies the request to the selected agent, which performs a single TCP connect with a 5-second timeout and returns the result as JSON.
-
-**Statuses:**
-
-| Status | Meaning |
-|---|---|
-| `open` | TCP handshake succeeded |
-| `closed` | Connection refused — port actively rejected |
-| `filtered` | Timeout, no response — firewall drop or DNS failure |
-
-**Input normalization:** `http://` and `https://` prefixes are stripped automatically on both the master and agent before the check is performed. A request for `https://example.ir` is treated identically to `example.ir`.
-
-**DNS:** Each agent uses its own system resolver. If an agent cannot resolve a hostname, the result will be `filtered` with an `i/o timeout` detail. This is expected behavior for agents with restricted or misconfigured DNS. Supply an IP address directly to bypass resolution entirely.
-
-**Adding port check to a new agent:** no additional configuration is required. The `/portcheck` endpoint is part of the standard agent binary and is active by default.
-
-## BGP Data
-
-### MRT Format
-
-The converter (`mrt2json`) reads TABLE_DUMP2 MRT files produced by RIPE RIS and RouteViews. It deduplicates prefixes (first-seen wins), skips malformed entries, and writes a single JSON file.
-
-Output format:
-
-```json
-{
-  "timestamp": 1745967419,
-  "routes": [
-    {
-      "prefix": "1.0.0.0/24",
-      "nexthop": "80.77.16.114",
-      "aspath": [13335, 15169],
-      "origin": "igp",
-      "localpref": 100,
-      "med": 0,
-      "communities": ["13335:10000"]
-    }
-  ]
-}
-```
-
-### Lookup behavior
-
-**IP lookup** — longest prefix match using a binary radix trie. O(32) for IPv4, O(128) for IPv6.
-
-**Prefix lookup** — exact match only.
-
-**ASN lookup** — returns up to 1000 routes whose AS-path contains the queried ASN. Results are capped in the response to prevent excessive rendering.
-
-### Updating BGP data
-
-The service watches the file's modification time. Drop a new `bgp.json` into `/var/lib/looking-glass/` and the service reloads within 5 minutes. For immediate effect:
-
-```sh
-systemctl restart looking-glass
-```
-
-During reload the old snapshot remains in memory and continues serving requests until the new one is fully parsed and atomically swapped in.
-
----
-
-## Nginx Configuration
-
-Create `/etc/nginx/sites-available/lookinglass`:
+### Nginx
 
 ```nginx
 server {
     listen 80;
-    server_name domain.ir www.domain.ir;
-
-    include /etc/nginx/snippets/security_headers.conf;
+    server_name your.domain;
 
     limit_req zone=ddos_limit burst=20 nodelay;
 
     location / {
         proxy_pass         http://127.0.0.1:8082;
         proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering           off;
-        proxy_cache               off;
-        proxy_read_timeout        130s;
-        proxy_set_header          X-Accel-Buffering no;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 130s;
+        proxy_set_header   X-Accel-Buffering no;
     }
 
     location /api/ {
-        limit_req zone=api_limit burst=3 nodelay;
+        limit_req        zone=api_limit burst=3 nodelay;
         limit_req_status 429;
         proxy_pass         http://127.0.0.1:8082;
         proxy_http_version 1.1;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_buffering           off;
-        proxy_cache               off;
-        proxy_read_timeout        130s;
-        proxy_set_header          X-Accel-Buffering no;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 130s;
+        proxy_set_header   X-Accel-Buffering no;
     }
 }
 ```
 
-Add rate limit zones to `/etc/nginx/nginx.conf` inside the `http {}` block:
+Add to `nginx.conf` inside `http {}`:
 
 ```nginx
 limit_req_zone $binary_remote_addr zone=ddos_limit:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=api_limit:10m rate=6r/m;
 ```
 
-Enable and reload:
-
-```sh
-ln -s /etc/nginx/sites-available/bgpx /etc/nginx/sites-enabled/bgpx
-nginx -t && systemctl reload nginx
-```
-
-**Critical:** The `/api/` location uses `proxy_buffering off`. Without this, SSE streams (ping, traceroute) will not flush to the client in real time. The `X-Accel-Buffering: no` header disables buffering at the nginx level for upstream-set responses as well.
-
----
-
-## systemd Services
-
-| Service | Node | Binary | Port |
-|---|---|---|---|
-| `looking-glass` | Master only | `looking-glass` | `127.0.0.1:8082` |
-| `looking-glass-agent` | All nodes | `agent` | `127.0.0.1:9090` (master), `0.0.0.0:9090` (remotes) |
-
-Both services are configured with `Restart=on-failure` and `WantedBy=multi-user.target`, so they come up automatically after a reboot.
-
----
-
-## Adding a New Node
-
-### 1. Provision the node
-
-Install packages:
-
-```sh
-apt update && apt install -y iputils-ping traceroute
-```
-
-Copy and install the agent:
-
-```sh
-scp agent root@<NEW_NODE_IP>:/usr/local/bin/looking-glass-agent
-chmod +x /usr/local/bin/looking-glass-agent
-```
-
-Create the service with `LISTEN_ADDR=0.0.0.0:9090` and the shared `AGENT_SECRET`. Enable and start it.
-
-### 2. Firewall the agent port
-
-On the new node, allow port 9090 only from the master:
-
-```sh
-ufw allow from mian_node(0.0.0.0) to any port 9090
-ufw reload
-```
-
-### 3. Verify connectivity from the master
-
-```sh
-curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NEW_NODE_IP>:9090/health
-# ok
-```
-
-### 4. Register the node in source
-
-Edit `internal/nodes/nodes.go` and append a new entry to the `List` slice:
-
-```go
-{
-    ID:       "newnode",
-    Name:     "City — ISP Name",
-    Location: "City",
-    ISP:      "ISP Name",
-    IP:       "<NEW_NODE_IP>",
-    URL:      "http://<NEW_NODE_IP>:9090",
-},
-```
-
-`ID` must be lowercase alphanumeric, unique, and URL-safe. `IP` is displayed publicly; `URL` is internal and never exposed to clients.
-
-### 5. Rebuild and deploy
-
-```sh
-cd /opt/someuser/looking-glass
-go build -ldflags="-s -w" -trimpath -o looking-glass .
-systemctl restart looking-glass
-```
-
-The new node appears in the source selector immediately after restart.
-
----
-
-## Security
-
-### Secret rotation
-
-To rotate the agent secret, update `AGENT_SECRET` in every node's service file and in `internal/nodes/nodes.go`, then rebuild the master and restart all services. There is no grace period — old and new secrets cannot coexist.
-
-### Network isolation
-
-Agent port 9090 must not be exposed to the public internet. The ufw rule on each agent node restricts access to the master IP only. Verify with:
-
-```sh
-ufw status verbose
-```
-
-### Rate limiting layers
-
-| Layer | Mechanism | Limit |
-|---|---|---|
-| nginx general | `limit_req zone=ddos_limit` | 20 req/s per IP |
-| nginx API | `limit_req zone=api_limit` | 6 req/min per IP |
-| Application | Token bucket | 20 req/min per IP |
-| Application | Global semaphore | 30 concurrent subprocesses |
-| Application | Per-IP semaphore | 1 concurrent subprocess per IP |
-
 ### fail2ban
 
-Two jails are active: `sshd` and `looking-glass`. The looking glass jail watches for HTTP 429 responses in the nginx access log and bans IPs that exceed the threshold.
-
-Check jail status:
-
 ```sh
-fail2ban-client status looking-glass
-fail2ban-client status sshd
-```
+cat > /etc/fail2ban/jail.d/looking-glass.conf << 'EOF'
+[looking-glass]
+enabled  = true
+port     = http,https
+filter   = looking-glass
+logpath  = /var/log/nginx/access.log
+maxretry = 10
+findtime = 60
+bantime  = 600
+EOF
 
-### Input validation
+cat > /etc/fail2ban/filter.d/looking-glass.conf << 'EOF'
+[Definition]
+failregex = ^<HOST> .* "(GET|POST) /api/.*" 429
+ignoreregex =
+EOF
 
-All user-supplied targets pass through `validator.ValidateTarget` before reaching any subprocess. The validator rejects inputs containing shell metacharacters and accepts only valid IP addresses or RFC-compliant hostnames. `exec.Command` is used directly — no shell interpolation occurs.
-
----
-
-## File Layout
-
-```
-/opt/someuser/looking-glass/
-├── main.go                        # Master entry point, HTTP routing
-├── go.mod
-├── looking-glass                  # Compiled master binary
-├── agent                          # Compiled agent binary
-├── mrt2json                       # MRT to JSON converter
-├── latest-bview.gz                # Raw MRT dump (RIPE RIS rrc00)
-├── web/
-│   └── index.html                 # UI — embedded into binary at build time
-├── cmd/
-│   ├── agent/main.go              # Agent source
-│   └── mrt2json/main.go          # MRT converter source
-└── internal/
-    ├── bgp/
-    │   ├── store.go               # BGP store: JSON load, hot-reload, atomic swap
-    │   └── trie.go                # Binary radix trie for prefix lookup
-    ├── handler/
-    │   ├── handler.go             # HTTP handlers: ping, traceroute, dig, ssl, bgp
-    │   └── proxy.go               # Node list endpoint and agent proxy handler
-    ├── nodes/
-    │   └── nodes.go               # Node registry and shared secret
-    ├── ratelimit/
-    │   └── limit.go               # Token bucket rate limiter
-    └── validator/
-        └── valid.go               # Input sanitization
-
-/var/lib/looking-glass/
-└── bgp.json                       # Processed BGP routing table (~260 MB)
-
-/etc/systemd/system/
-├── looking-glass.service
-└── looking-glass-agent.service
-
-/usr/local/bin/
-├── looking-glass
-└── looking-glass-agent
+fail2ban-client reload
 ```
 
 ---
 
-## Environment Variables
+## Adding a node
 
-### looking-glass
+1. Provision host, install `iputils-ping traceroute`.
+2. Copy agent binary, install and start service with shared secret and `LISTEN_ADDR=0.0.0.0:9090`.
+3. On the new node, restrict port 9090 to master IP only:
+   ```sh
+   ufw allow from <MASTER_IP> to any port 9090
+   ufw reload
+   ```
+4. Edit `internal/nodes/nodes.go`, append to `List`:
+   ```go
+   {
+       ID:       "nodeid",       // lowercase alphanumeric, URL-safe, unique
+       Name:     "City — ISP",
+       Location: "City",
+       ISP:      "ISP Name",
+       IP:       "<NODE_IP>",    // returned in /api/nodes, never the internal URL
+       URL:      "http://<NODE_IP>:9090",  // internal only, never exposed to clients
+   },
+   ```
+5. Rebuild master and restart:
+   ```sh
+   go build -ldflags="-s -w" -trimpath -o looking-glass .
+   systemctl restart looking-glass
+   ```
 
-| Variable | Default | Description |
+---
+
+## API reference
+
+Master endpoints:
+
+| Method | Path | Params | Response |
+|---|---|---|---|
+| GET | `/` | — | HTML UI |
+| GET | `/api/myip` | — | `{"ip":"..."}` |
+| GET | `/api/info` | — | `{"route_count":N,"bgp_updated":"..."}` |
+| GET | `/api/ping` | `target`, `count` (1–20) | SSE stream, single node |
+| GET | `/api/traceroute` | `target`, `maxhops` (5–64) | SSE stream, single node |
+| GET | `/api/dig` | `target`, `qtype` | SSE stream |
+| GET | `/api/ssl` | `target` (host or host:port) | JSON cert info |
+| GET | `/api/bgp` | `type` (ip\|prefix\|asn), `query` | JSON routes |
+| GET | `/api/nodes` | — | JSON array of public node metadata |
+| GET | `/api/proxy` | `node`, `action` (ping\|traceroute), forwarded params | SSE proxy |
+| GET | `/api/portcheck` | `node`, `target`, `port` | JSON port result |
+| GET | `/api/ping-all` | `target` | JSON, all nodes in parallel |
+
+Agent endpoints (require `X-Agent-Secret` header):
+
+| Method | Path | Description |
 |---|---|---|
-| `LISTEN_ADDR` | `127.0.0.1:8082` | TCP address to bind |
-| `BGP_DATA_PATH` | `/var/lib/looking-glass/bgp.json` | Path to processed BGP JSON |
+| GET | `/health` | Returns `ok` |
+| GET | `/ping` | SSE stream |
+| GET | `/traceroute` | SSE stream |
+| GET | `/portcheck` | `{"target","port","status","latency_ms","error"}` |
+| GET | `/ping-summary` | `{"sent","received","loss","rtt_min","rtt_avg","rtt_max","error"}` |
 
-### looking-glass-agent
+Port check status values: `open`, `closed`, `filtered`.
+Ping-all status values per node: `ok`, `degraded`, `down`, `error`.
 
-| Variable | Default | Description |
-|---|---|---|
-| `LISTEN_ADDR` | `0.0.0.0:9090` | TCP address to bind |
-| `AGENT_SECRET` | *(required)* | Shared secret for request authentication |
+---
+
+## Environment variables
+
+| Binary | Variable | Default | Description |
+|---|---|---|---|
+| master | `LISTEN_ADDR` | `127.0.0.1:8082` | Bind address |
+| master | `BGP_DATA_PATH` | `/var/lib/looking-glass/bgp.json` | BGP data file path |
+| agent | `LISTEN_ADDR` | `0.0.0.0:9090` | Bind address |
+| agent | `AGENT_SECRET` | *(required)* | Pre-shared secret for request authentication |

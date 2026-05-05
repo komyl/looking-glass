@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"looking-glass/internal/nodes"
@@ -186,4 +187,99 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	io.Copy(w, resp.Body)
+}
+func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
+		writeError(w, "invalid target", http.StatusBadRequest)
+		return
+	}
+
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+
+	type nodeResult struct {
+		ID       string  `json:"id"`
+		Name     string  `json:"name"`
+		ISP      string  `json:"isp"`
+		Sent     int     `json:"sent"`
+		Received int     `json:"received"`
+		Loss     float64 `json:"loss"`
+		RTTMin   float64 `json:"rtt_min"`
+		RTTAvg   float64 `json:"rtt_avg"`
+		RTTMax   float64 `json:"rtt_max"`
+		Error    string  `json:"error,omitempty"`
+		Status   string  `json:"status"`
+	}
+
+	results := make([]nodeResult, len(nodes.List))
+	for i, n := range nodes.List {
+		results[i] = nodeResult{ID: n.ID, Name: n.Name, ISP: n.ISP, Status: "pending"}
+	}
+
+	type agentResp struct {
+		Sent     int     `json:"sent"`
+		Received int     `json:"received"`
+		Loss     float64 `json:"loss"`
+		RTTMin   float64 `json:"rtt_min"`
+		RTTAvg   float64 `json:"rtt_avg"`
+		RTTMax   float64 `json:"rtt_max"`
+		Error    string  `json:"error,omitempty"`
+	}
+
+	var wg sync.WaitGroup
+	for i, n := range nodes.List {
+		wg.Add(1)
+		go func(idx int, node nodes.Node) {
+			defer wg.Done()
+
+			agentURL := fmt.Sprintf("%s/ping-summary?target=%s&count=4", node.URL, target)
+			req, err := http.NewRequest("GET", agentURL, nil)
+			if err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = err.Error()
+				return
+			}
+			req.Header.Set("X-Agent-Secret", nodes.Secret)
+
+			client := &http.Client{Timeout: 35 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = "agent unreachable"
+				return
+			}
+			defer resp.Body.Close()
+
+			var ar agentResp
+			if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = "invalid response"
+				return
+			}
+
+			results[idx].Sent = ar.Sent
+			results[idx].Received = ar.Received
+			results[idx].Loss = ar.Loss
+			results[idx].RTTMin = ar.RTTMin
+			results[idx].RTTAvg = ar.RTTAvg
+			results[idx].RTTMax = ar.RTTMax
+			results[idx].Error = ar.Error
+
+			if ar.Error != "" {
+				results[idx].Status = "error"
+			} else if ar.Loss == 100 {
+				results[idx].Status = "down"
+			} else if ar.Loss > 0 {
+				results[idx].Status = "degraded"
+			} else {
+				results[idx].Status = "ok"
+			}
+		}(i, n)
+	}
+
+	wg.Wait()
+	writeJSON(w, map[string]any{"target": target, "results": results})
 }

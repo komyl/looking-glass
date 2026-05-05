@@ -41,6 +41,7 @@ func main() {
 	mux.HandleFunc("GET /api/nodes", h.Nodes)
 	mux.HandleFunc("GET /api/proxy", h.Proxy)
 	mux.HandleFunc("GET /api/portcheck", h.PortCheck)
+	mux.HandleFunc("GET /api/ping-all", h.PingAll)
 
 	srv := &http.Server{
 		Addr:         listenAddr,

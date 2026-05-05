@@ -228,39 +228,23 @@ footer a{color:var(--accent);text-decoration:none}
       <div class="form-row">
         <div class="fg">
           <label>Target</label>
-          <input type="text" id="ping-target" placeholder="10.0.0.1 or server.example.ir" autocomplete="off" autocorrect="off" spellcheck="false"/>
-        </div>
-        <div class="fg narrow">
-          <label>Source Node</label>
-          <select id="ping-node"></select>
-        </div>
-        <div class="fg narrow">
-          <label>Count</label>
-          <select id="ping-count">
-            <option value="5">5 pings</option>
-            <option value="10">10 pings</option>
-            <option value="20">20 pings</option>
-          </select>
+          <input type="text" id="ping-target" placeholder="1.1.1.1 or example.ir" autocomplete="off" autocorrect="off" spellcheck="false"/>
         </div>
         <div class="fg narrow">
           <label>&nbsp;</label>
-          <button class="btn btn-run" id="ping-run" onclick="runPing()">
+          <button class="btn btn-run" id="ping-run" onclick="runPingAll()">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
             Run
           </button>
         </div>
       </div>
       <div class="out-header">
-        <span class="out-label">Output</span>
-        <div class="out-controls">
-          <span class="status"><span class="dot" id="ping-dot"></span><span id="ping-stxt">Ready</span></span>
-          <button class="btn btn-stop hidden" id="ping-stop" onclick="stopPing()">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
-            Stop
-          </button>
-        </div>
+        <span class="out-label">Results</span>
+        <span class="status"><span class="dot" id="ping-dot"></span><span id="ping-stxt">Ready</span></span>
       </div>
-      <pre class="terminal" id="ping-out"><span class="ph">Enter a target and press Run</span></pre>
+      <div id="ping-out" style="overflow-x:auto">
+        <span class="ph">Enter a target and press Run</span>
+      </div>
     </div>
   </div>
 
@@ -430,17 +414,7 @@ footer a{color:var(--accent);text-decoration:none}
     </div>
   </div>
 </main>
-<div style="text-align:center;padding:16px;margin-top:8px">
-  <a href="https://parspack.com" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:14px;background:var(--surf);border:1px solid var(--bdr);border-radius:12px;padding:14px 24px;position:relative;overflow:hidden;text-decoration:none">
-    <div style="position:absolute;inset:0;background:linear-gradient(90deg,transparent 0%,rgba(0,229,176,.06) 50%,transparent 100%);animation:shimmer 2.5s ease-in-out infinite;transform:translateX(-100%)"></div>
-    <img src="https://parspack.com/new/wp-content/themes/parspack-v3/assets/img/sit-logo-text-white.png" alt="ParsPack" style="height:30px;opacity:.95;position:relative">
-    <div style="width:1px;height:24px;background:var(--bdr2)"></div>
-    <span style="color:var(--text);font-size:13px;font-weight:600;letter-spacing:.2px;position:relative">قدرت گرفته از پارس‌پک</span>
-  </a>
-</div>
-<style>
-@keyframes shimmer{0%{transform:translateX(-100%)}60%,100%{transform:translateX(100%)}}
-</style>
+
 <footer>
   Made with &hearts; by <a href="//komyl.ir" target="_blank" rel="noopener">Komeyl Kalhorinia</a>
 </footer>
@@ -483,33 +457,63 @@ fetch('/api/myip').then(r=>r.json()).then(d=>{document.getElementById('clientIP'
 fetch('/api/info').then(r=>r.json()).then(d=>{const m=document.getElementById('hdrMeta');if(d.route_count>0){m.innerHTML=`BGP Routes&nbsp;<span>${d.route_count.toLocaleString()}</span>&nbsp;&nbsp;Updated&nbsp;<span>${esc(d.bgp_updated)}</span>`}else{m.innerHTML='BGP data <span>not loaded</span>'}}).catch(()=>{});
 
 let pingES=null;
-function runPing(){
+function runPingAll(){
   const target=document.getElementById('ping-target').value.trim();
   if(!target)return;
-  const count=document.getElementById('ping-count').value;
   const out=document.getElementById('ping-out');
-  stopPing();out.innerHTML='';setStatus('ping','run','Running...');
+  setStatus('ping','run','Running...');
   document.getElementById('ping-run').disabled=true;
-  document.getElementById('ping-stop').classList.remove('hidden');
-  const pingNode=document.getElementById('ping-node').value;
-  const pingURL=pingNode
-    ? '/api/proxy?node='+pingNode+'&action=ping&target='+encodeURIComponent(target)+'&count='+count
-    : '/api/ping?target='+encodeURIComponent(target)+'&count='+count;
-  pingES=new EventSource(pingURL);
-  pingES.onmessage=e=>{
-    if(e.data==='[DONE]'){stopPing('ok');return}
-    if(e.data.startsWith('[ERROR]')){out.innerHTML+=`<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`;stopPing('err');return}
-    out.innerHTML+=highlight(e.data)+'\n';out.scrollTop=out.scrollHeight;
-  };
-  pingES.onerror=()=>{if(pingES&&pingES.readyState===2)stopPing('err')};
-}
-function stopPing(state){
-  if(pingES){pingES.close();pingES=null}
-  document.getElementById('ping-run').disabled=false;
-  document.getElementById('ping-stop').classList.add('hidden');
-  if(state==='ok')setStatus('ping','ok','Done');
-  else if(state==='err')setStatus('ping','err','Error');
-  else setStatus('ping','','Ready');
+
+  // build skeleton table
+  out.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
+<th style="text-align:left;padding:8px 10px">Node</th>
+<th style="text-align:left;padding:8px 10px">ISP</th>
+<th style="text-align:center;padding:8px 10px">Sent/Recv</th>
+<th style="text-align:center;padding:8px 10px">Loss</th>
+<th style="text-align:right;padding:8px 10px">RTT min/avg/max</th>
+<th style="text-align:center;padding:8px 10px">Status</th>
+</tr></thead>
+<tbody id="ping-tbody"></tbody>
+</table>`;
+
+  fetch('/api/nodes').then(r=>r.json()).then(ns=>{
+    const tbody=document.getElementById('ping-tbody');
+    ns.forEach(n=>{
+      tbody.innerHTML+=`<tr id="ping-row-${n.id}" style="border-bottom:1px solid var(--bdr2)">
+<td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(n.name)}</td>
+<td style="padding:10px 10px;color:var(--muted2);font-size:12px">${esc(n.isp)}</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">—</td>
+<td style="padding:10px 10px;text-align:center"><span class="spin"></span></td>
+</tr>`;
+    });
+  });
+
+  fetch('/api/ping-all?target='+encodeURIComponent(target))
+    .then(r=>r.json())
+    .then(data=>{
+      (data.results||[]).forEach(r=>{
+        const row=document.getElementById('ping-row-'+r.id);
+        if(!row)return;
+        const cells=row.querySelectorAll('td');
+        const statusColor=r.status==='ok'?'var(--green)':r.status==='degraded'?'var(--yellow)':'var(--red)';
+        const statusText=r.status==='ok'?'OK':r.status==='degraded'?'Degraded':r.status==='down'?'Down':'Error';
+        const lossColor=r.loss===0?'var(--green)':r.loss<50?'var(--yellow)':'var(--red)';
+        cells[2].textContent=r.error?'—':`${r.sent} / ${r.received}`;
+        cells[3].innerHTML=r.error?'—':`<span style="color:${lossColor}">${r.loss}%</span>`;
+        cells[4].textContent=r.error?r.error:`${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`;
+        cells[5].innerHTML=`<span style="color:${statusColor};font-weight:700;font-size:12px">${statusText}</span>`;
+      });
+      setStatus('ping','ok','Done');
+      document.getElementById('ping-run').disabled=false;
+    })
+    .catch(err=>{
+      setStatus('ping','err','Error');
+      document.getElementById('ping-out').innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`;
+      document.getElementById('ping-run').disabled=false;
+    });
 }
 
 let trES=null;
