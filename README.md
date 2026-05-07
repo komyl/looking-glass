@@ -13,7 +13,7 @@ The system is split into two binaries: a **master** that serves the UI, holds th
 - **Traceroute** — user selects source node. Output streamed in real time via SSE.
 - **Port check** — single TCP connect to target:port with 5s timeout. Returns `open`, `closed`, or `filtered`. Supports direct IP or hostname. `http://` and `https://` prefixes are stripped before resolution.
 - **DNS lookup** — executes `dig` on the master against a configured resolver. Supports A, AAAA, MX, NS, TXT, CNAME, SOA, PTR.
-- **SSL certificate inspection** — direct TLS dial to target:443 (or custom port). Returns subject, issuer, validity window, days remaining, SANs. On validation failure, falls back to `InsecureSkipVerify` and reports the cert alongside the error.
+- **SSL certificate inspection** — direct TLS dial to target:443 (or custom port). Returns subject, issuer, validity window, days remaining, SANs. On validation failure, falls back to `InsecureSkipVerify` and reports the cert alongside the error. Internal server addresses are stripped from error messages before returning to the client.
 
 ### BGP routing table
 - Loaded from a local JSON file converted from MRT TABLE_DUMP2 format (RIPE RIS, RouteViews, or any compliant source).
@@ -21,6 +21,15 @@ The system is split into two binaries: a **master** that serves the UI, holds th
 - Lookup modes: longest-prefix match by IP, exact prefix, ASN (returns up to 1000 routes whose AS-path contains the queried ASN).
 - Hot-reload: the store polls the file's mtime every 5 minutes and swaps the snapshot atomically. Old data continues serving during reload. No restart required.
 - Memory footprint: a full global BGP table (~1.4M prefixes) loads into approximately 2 GB RSS.
+
+### BGP route enrichment
+IP lookups are enriched with two additional data sources loaded at startup:
+
+**GeoIP** — from an ipinfo Lite CSV file. Returns country, country code, continent, ASN, AS operator name, and AS domain for the queried IP. Loaded into the same binary radix trie structure as the BGP table.
+
+**AS path operator names** — each ASN in the route's AS path is resolved against the ipinfo ASN index (built alongside the trie at load time) and returned with operator name and domain. Rendered in the UI as a directed path: `AS34549 (meerfarbig) → AS15169 (Google LLC)`.
+
+Both databases are loaded from local files. Neither requires network access at runtime.
 
 ### Client IP detection
 Reads `X-Forwarded-For` first, then `X-Real-IP`, then `RemoteAddr`. Works correctly behind nginx or any reverse proxy that sets standard forwarding headers.
@@ -39,7 +48,7 @@ Global subprocess semaphore caps total concurrent `exec.Command` invocations at 
 
 **Next-hop is not shown for BGP results.** The MRT dump is collected from a single RIPE RIS collector peer. Every route's next-hop reflects that peer's perspective, not the local routing table. Displaying it would be misleading. The kernel FIB (`ip route get`) was evaluated as an alternative but returns only the default gateway on a typical VPS. AS Path, origin, and communities are shown instead.
 
-**No GeoIP.** A MaxMind GeoLite2 reader was implemented in pure Go (no cgo, no external libraries). The reader correctly parsed metadata and traversed the radix trie but triggered goroutine stack overflow on deeply nested pointer chains in the MMDB data section. The fix (depth cap at 64) was implemented but the feature was deferred to avoid destabilizing production during initial rollout. The reader is present in the repository and can be re-enabled.
+**GeoIP uses ipinfo CSV, not MaxMind MMDB.** A MaxMind GeoLite2 MMDB reader was implemented in pure Go. The reader correctly parsed metadata and traversed the trie but triggered goroutine stack overflow on deeply nested pointer chains in the MMDB data section. Rather than maintain a custom MMDB parser, the ipinfo Lite CSV was adopted — same data, simpler format, loaded directly into the existing radix trie infrastructure with an ASN index built alongside it.
 
 **SSE over WebSocket for streaming.** Traceroute and single-node ping stream output line-by-line via Server-Sent Events. SSE was chosen because it is unidirectional, trivially proxied through nginx with `proxy_buffering off`, and requires no connection upgrade. The `X-Accel-Buffering: no` response header disables nginx's internal buffer for proxied SSE responses.
 
@@ -64,6 +73,8 @@ Global subprocess semaphore caps total concurrent `exec.Command` invocations at 
     ├── bgp/
     │   ├── store.go           # JSON loader, mtime watcher, atomic snapshot swap
     │   └── trie.go            # IPv4/IPv6 binary radix trie
+    ├── geoip/
+    │   └── geoip.go           # ipinfo CSV loader, radix trie, ASN index
     ├── handler/
     │   ├── handler.go         # HTTP handlers: myip, info, ping, traceroute, dig, ssl, bgp
     │   └── proxy.go           # /api/nodes, /api/proxy, /api/portcheck, /api/ping-all
@@ -144,6 +155,23 @@ JSON schema:
 }
 ```
 
+## GeoIP data
+
+The master loads an ipinfo Lite CSV at startup. The file is not included in the repository.
+
+Expected path: configurable via `GEOIP_PATH` environment variable. Accepts plain CSV or gzip-compressed CSV.
+
+CSV schema:
+
+```
+network,country,country_code,continent,continent_code,asn,as_name,as_domain
+1.0.0.0/24,Australia,AU,Oceania,OC,AS13335,"Cloudflare, Inc.",cloudflare.com
+```
+
+The loader builds two structures from a single pass over the file:
+- A binary radix trie for IP-to-record lookup (longest prefix match, same implementation as BGP trie).
+- A hash map keyed by ASN string (`AS15169`) for O(1) operator name resolution during AS path enrichment.
+
 ---
 
 ## Deployment
@@ -173,6 +201,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/looking-glass
 Environment=BGP_DATA_PATH=/var/lib/looking-glass/bgp.json
+Environment=GEOIP_PATH=/opt/ipinfo/ipinfo_lite.csv.gz
 Environment=LISTEN_ADDR=127.0.0.1:8082
 ExecStart=/usr/local/bin/looking-glass
 Restart=on-failure
@@ -357,7 +386,7 @@ Master endpoints:
 | GET | `/api/traceroute` | `target`, `maxhops` (5–64) | SSE stream, single node |
 | GET | `/api/dig` | `target`, `qtype` | SSE stream |
 | GET | `/api/ssl` | `target` (host or host:port) | JSON cert info |
-| GET | `/api/bgp` | `type` (ip\|prefix\|asn), `query` | JSON routes |
+| GET | `/api/bgp` | `type` (ip\|prefix\|asn), `query` | JSON routes with GeoIP and AS enrichment |
 | GET | `/api/nodes` | — | JSON array of public node metadata |
 | GET | `/api/proxy` | `node`, `action` (ping\|traceroute), forwarded params | SSE proxy |
 | GET | `/api/portcheck` | `node`, `target`, `port` | JSON port result |
@@ -384,5 +413,6 @@ Ping-all status values per node: `ok`, `degraded`, `down`, `error`.
 |---|---|---|---|
 | master | `LISTEN_ADDR` | `127.0.0.1:8082` | Bind address |
 | master | `BGP_DATA_PATH` | `/var/lib/looking-glass/bgp.json` | BGP data file path |
+| master | `GEOIP_PATH` | `/opt/ipinfo/ipinfo_lite.csv.gz` | ipinfo Lite CSV path (plain or gzip) |
 | agent | `LISTEN_ADDR` | `0.0.0.0:9090` | Bind address |
 | agent | `AGENT_SECRET` | *(required)* | Pre-shared secret for request authentication |

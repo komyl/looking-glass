@@ -15,21 +15,24 @@ import (
 	"time"
 
 	"looking-glass/internal/bgp"
+	"looking-glass/internal/geoip"
 	"looking-glass/internal/ratelimit"
 	"looking-glass/internal/validator"
 )
 
 type Handler struct {
 	store     *bgp.Store
+	geo       *geoip.DB
 	rl        *ratelimit.Limiter
 	index     []byte
 	semaphore chan struct{}
 	ipSem     sync.Map
 }
 
-func New(store *bgp.Store, rl *ratelimit.Limiter, indexHTML []byte) *Handler {
+func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byte) *Handler {
 	return &Handler{
 		store:     store,
+		geo:       geo,
 		rl:        rl,
 		index:     indexHTML,
 		semaphore: make(chan struct{}, 30),
@@ -114,6 +117,21 @@ func sseDone(w http.ResponseWriter, f http.Flusher) {
 func sseErr(w http.ResponseWriter, f http.Flusher, msg string) {
 	fmt.Fprintf(w, "data: [ERROR] %s\n\n", msg)
 	f.Flush()
+}
+func sanitizeErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	for _, prefix := range []string{"dial tcp ", "read tcp ", "write tcp "} {
+		if strings.Contains(msg, prefix) {
+			if arrow := strings.Index(msg, "->"); arrow >= 0 {
+				msg = msg[arrow+2:]
+			}
+			break
+		}
+	}
+	return msg
 }
 
 func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
@@ -361,9 +379,42 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 	if routes == nil {
 		routes = []bgp.Route{}
 	}
+	type enrichedRoute struct {
+		bgp.Route
+		Geo *geoip.Record `json:"geo,omitempty"`
+	}
+
+	enriched := make([]enrichedRoute, len(routes))
+	for i, r := range routes {
+		er := enrichedRoute{Route: r}
+		if h.geo != nil && qtype == "ip" {
+			er.Geo = h.geo.Lookup(query)
+		}
+		enriched[i] = er
+	}
+
+	type asnInfo struct {
+		ASN    int    `json:"asn"`
+		Name   string `json:"name,omitempty"`
+		Domain string `json:"domain,omitempty"`
+	}
+
+	var aspathEnriched []asnInfo
+	if h.geo != nil && len(routes) > 0 {
+		for _, asn := range routes[0].ASPath {
+			info := asnInfo{ASN: asn}
+			if rec := h.geo.LookupASN(asn); rec != nil {
+				info.Name = rec.ASName
+				info.Domain = rec.ASDomain
+			}
+			aspathEnriched = append(aspathEnriched, info)
+		}
+	}
+
 	writeJSON(w, map[string]any{
-		"count":  len(routes),
-		"routes": routes,
+		"count":           len(enriched),
+		"routes":          enriched,
+		"aspath_enriched": aspathEnriched,
 	})
 }
 
@@ -425,13 +476,13 @@ func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 			ServerName:         host,
 		})
 		if err2 != nil {
-			writeJSON(w, result{Valid: false, Error: err.Error()})
+			writeJSON(w, result{Valid: false, Error: sanitizeErr(err)})
 			return
 		}
 		defer conn2.Close()
 		res := extractCert(conn2)
 		res.Valid = false
-		res.Error = err.Error()
+		res.Error = sanitizeErr(err)
 		writeJSON(w, res)
 		return
 	}

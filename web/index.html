@@ -421,7 +421,13 @@ footer a{color:var(--accent);text-decoration:none}
 
 <script>
 'use strict';
-function switchTab(name){['ping','traceroute','dig','port','ssl','bgp'].forEach(n=>{document.getElementById('tab-'+n).classList.toggle('active',n===name);document.getElementById('panel-'+n).classList.toggle('active',n===name)})}
+function switchTab(name){
+  ['ping','traceroute','dig','port','ssl','bgp'].forEach(n=>{
+    document.getElementById('tab-'+n).classList.toggle('active',n===name);
+    document.getElementById('panel-'+n).classList.toggle('active',n===name);
+  });
+  if(name==='traceroute'||name==='port')populateNodes();
+}
 function setStatus(id,state,text){document.getElementById(id+'-dot').className='dot'+(state?' '+state:'');document.getElementById(id+'-stxt').textContent=text}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function highlight(raw){
@@ -444,16 +450,28 @@ function highlightDig(raw){
   }
   return s;
 }
-fetch('/api/nodes')
-  .then(r=>r.json())
-  .then(nodes=>{
-    const opts=nodes.map(n=>`<option value="${n.id}">${n.name}</option>`).join('');
-    document.getElementById('ping-node').innerHTML=opts;
-    document.getElementById('tr-node').innerHTML=opts;
-    document.getElementById('port-node').innerHTML=opts;
-  })
-  .catch(()=>{});
+let cachedNodeOpts='';
+function populateNodes(){
+  if(cachedNodeOpts){
+    const tr=document.getElementById('tr-node');
+    const port=document.getElementById('port-node');
+    if(tr&&!tr.options.length)tr.innerHTML=cachedNodeOpts;
+    if(port&&!port.options.length)port.innerHTML=cachedNodeOpts;
+    return;
+  }
+  fetch('/api/nodes')
+    .then(r=>r.json())
+    .then(nodes=>{
+      cachedNodeOpts=nodes.map(n=>`<option value="${n.id}">${n.name}</option>`).join('');
+      const tr=document.getElementById('tr-node');
+      const port=document.getElementById('port-node');
+      if(tr)tr.innerHTML=cachedNodeOpts;
+      if(port)port.innerHTML=cachedNodeOpts;
+    })
+    .catch(()=>{});
+}
 fetch('/api/myip').then(r=>r.json()).then(d=>{document.getElementById('clientIP').textContent=d.ip||'unknown'}).catch(()=>{document.getElementById('clientIP').textContent='unknown'});
+populateNodes();
 fetch('/api/info').then(r=>r.json()).then(d=>{const m=document.getElementById('hdrMeta');if(d.route_count>0){m.innerHTML=`BGP Routes&nbsp;<span>${d.route_count.toLocaleString()}</span>&nbsp;&nbsp;Updated&nbsp;<span>${esc(d.bgp_updated)}</span>`}else{m.innerHTML='BGP data <span>not loaded</span>'}}).catch(()=>{});
 
 let pingES=null;
@@ -598,31 +616,69 @@ function runBGP(){
       if(data.error){setStatus('bgp','err','Error');out.innerHTML=`<span class="t-err">${esc(data.error)}</span>`;return}
       const cnt=data.count||0;
       setStatus('bgp','ok',cnt===0?'No routes found':cnt+' route'+(cnt>1?'s':'')+' found');
-      renderBGP(data.routes||[],type);
+      renderBGP(data,type);
     })
     .catch(err=>{setStatus('bgp','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
 }
 function originClass(o){if(!o)return'';const c=o.toLowerCase();if(c==='igp'||c==='i')return'origin-i';if(c==='egp'||c==='e')return'origin-e';return'origin-q'}
-function renderBGP(routes,type){
+function renderBGP(data,type){
   const out=document.getElementById('bgp-out');
+  const routes=data.routes||[];
+  const aspEnriched=data.aspath_enriched||[];
   if(!routes.length){out.innerHTML='<span class="ph">No routes found</span>';return}
   const max=type==='asn'?50:routes.length;
   let html='';
   if(routes.length>max)html+=`<div class="notice">Showing ${max} of ${routes.length} routes</div>`;
   for(let i=0;i<Math.min(routes.length,max);i++){
     const r=routes[i];
-    const asp=(r.aspath||[]).length?(r.aspath||[]).map(n=>`<span class="asn-tag">AS${n}</span>`).join(' '):'<span style="color:var(--muted)">-</span>';
-    const comm=(r.communities||[]).length?(r.communities||[]).map(c=>`<span class="comm-tag">${esc(c)}</span>`).join(' '):'<span style="color:var(--muted)">-</span>';
     const orig=r.origin?`<span class="${originClass(r.origin)}">${esc(r.origin)}</span>`:'<span style="color:var(--muted)">-</span>';
+
+    // AS Path with arrows and names
+    let aspHtml='<span style="color:var(--muted)">-</span>';
+    if((r.aspath||[]).length){
+      const enrichMap={};
+      aspEnriched.forEach(a=>enrichMap[a.asn]=a);
+      aspHtml=(r.aspath||[]).map((asn,idx)=>{
+        const info=enrichMap[asn]||{};
+        const name=info.name?`<span style="color:var(--muted2);font-size:10px;margin-left:3px">${esc(info.name)}</span>`:'';
+        const arrow=idx<(r.aspath||[]).length-1?`<span style="color:var(--bdr2);margin:0 4px">→</span>`:'';
+        return `<span class="asn-tag">AS${asn}</span>${name}${arrow}`;
+      }).join('');
+    }
+
+    const comm=(r.communities||[]).length?(r.communities||[]).map(c=>`<span class="comm-tag">${esc(c)}</span>`).join(' '):'<span style="color:var(--muted)">-</span>';
+
+    // GeoIP block
+    let geoHtml='';
+    if(r.geo){
+      const g=r.geo;
+      const flag=g.country_code?getFlagEmoji(g.country_code):'';
+      const parts=[];
+      if(g.country)parts.push(`${flag} ${esc(g.country)}`);
+      if(g.continent)parts.push(esc(g.continent));
+      if(g.as_name)parts.push(`<span style="color:var(--purple)">${esc(g.as_name)}</span>`);
+      if(g.as_domain)parts.push(`<span style="color:var(--muted2);font-size:11px">${esc(g.as_domain)}</span>`);
+      if(parts.length){
+        geoHtml=`<div class="rattr wide"><div class="rattr-k">Location</div><div class="rattr-v">${parts.join(' · ')}</div></div>`;
+      }
+    }
+
     html+=`<div class="rcard"><div class="rprefix">${esc(r.prefix)}</div><div class="rattrs">
+${geoHtml}
 <div class="rattr"><div class="rattr-k">Origin</div><div class="rattr-v">${orig}</div></div>
 <div class="rattr"><div class="rattr-k">Local Pref</div><div class="rattr-v">${r.localpref!=null?r.localpref:'-'}</div></div>
 <div class="rattr"><div class="rattr-k">MED</div><div class="rattr-v">${r.med!=null?r.med:'-'}</div></div>
-<div class="rattr wide"><div class="rattr-k">AS Path</div><div class="rattr-v">${asp}</div></div>
+<div class="rattr wide"><div class="rattr-k">AS Path</div><div class="rattr-v" style="line-height:2">${aspHtml}</div></div>
 <div class="rattr wide"><div class="rattr-k">Communities</div><div class="rattr-v">${comm}</div></div>
 </div></div>`;
   }
   out.innerHTML=html;
+}
+
+function getFlagEmoji(code){
+  if(!code||code.length!==2)return'';
+  const o=127397;
+  return String.fromCodePoint(code.charCodeAt(0)+o)+String.fromCodePoint(code.charCodeAt(1)+o);
 }
 document.getElementById('ping-target').addEventListener('keydown',e=>{if(e.key==='Enter')runPing()});
 document.getElementById('tr-target').addEventListener('keydown',e=>{if(e.key==='Enter')runTrace()});

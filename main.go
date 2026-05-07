@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"looking-glass/internal/bgp"
+	"looking-glass/internal/geoip"
 	"looking-glass/internal/handler"
 	"looking-glass/internal/ratelimit"
 )
@@ -25,9 +26,17 @@ func main() {
 	store := bgp.NewStore(bgpPath)
 	store.Start()
 
+	var geo *geoip.DB
+	geoPath := envOr("GEOIP_PATH", "/opt/someuser/ipinfo/ipinfo_lite.csv.gz")
+	if g, err := geoip.Open(geoPath); err != nil {
+		log.Printf("[geoip] skipped: %v", err)
+	} else {
+		geo = g
+	}
+
 	rl := ratelimit.New(20, 5)
 
-	h := handler.New(store, rl, indexHTML)
+	h := handler.New(store, geo, rl, indexHTML)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", h.Index)
