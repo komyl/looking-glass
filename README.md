@@ -48,10 +48,10 @@ web/index.html        UI, embedded into binary at build time
 ## Documentation
 
 - [INSTALL.md](INSTALL.md) — build, deploy, nginx, systemd, fail2ban
-- [doc/architecture.md](doc/architecture.md) — system design and decisions
-- [doc/api.md](doc/api.md) — HTTP API reference
-- [doc/bgp-data.md](doc/bgp-data.md) — MRT format, conversion, update process
-- [doc/geoip.md](doc/geoip.md) — ipinfo CSV setup
+- [docs/architecture.md](doc/architecture.md) — system design and decisions
+- [docs/api.md](doc/api.md) — HTTP API reference
+- [docs/bgp-data.md](doc/bgp-data.md) — MRT format, conversion, update process
+- [docs/geoip.md](doc/geoip.md) — ipinfo CSV setup
 - [CONTRIBUTING.md](CONTRIBUTING.md) — adding nodes, contributing patches
 - [CHANGELOG](CHANGELOG) — version history
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities
