@@ -1,0 +1,87 @@
+# Architecture
+
+## Overview
+
+Two binaries. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations.
+
+```
+                     ┌──────────────────────────────┐
+                     │          Master Node          │
+      User ─HTTPS──▶ │  nginx → looking-glass :8082  │
+                     │  agent (127.0.0.1:9090)       │
+                     └──────────┬────────────────────┘
+                                │  HTTP + X-Agent-Secret
+               ┌────────────────┼────────────────┐
+               ▼                ▼                ▼
+           Node A            Node B           Node C
+          agent:9090        agent:9090       agent:9090
+```
+
+The master and agents communicate over private networking. The agent port is never exposed to the public internet.
+
+---
+
+## BGP table
+
+Routes are loaded from a JSON file converted from MRT TABLE_DUMP2 format. The file is read once at startup and again whenever its mtime changes (polled every 5 minutes). During reload, the old snapshot continues serving requests until the new one is fully parsed. The swap is atomic via `sync/atomic.Pointer`.
+
+Prefix lookup uses a binary radix trie — one trie for IPv4, one for IPv6. Each node in the trie holds a slice of routes. IP lookup walks the trie bit by bit and returns the deepest matching node (longest prefix match). Prefix lookup walks exactly `prefix_length` bits and returns routes at that node only.
+
+ASN lookup is a linear scan of an inverted index built at load time: a `map[int][]Route` keyed by ASN. Results are capped at 1000 to prevent excessive memory allocation in responses.
+
+Memory: a full global BGP table (~1.4M prefixes) occupies approximately 2 GB RSS.
+
+---
+
+## GeoIP
+
+The ipinfo Lite CSV is loaded into the same binary radix trie structure as BGP routes. A hash map (`map[string]*Record`) is built alongside it in a single pass, keyed by ASN string (`AS15169`), for O(1) operator name resolution during BGP response enrichment.
+
+MaxMind MMDB format was evaluated but not adopted. A pure Go MMDB reader was implemented and correctly parsed metadata and traversed the trie, but triggered goroutine stack overflow on deeply nested pointer chains in the data section. The ipinfo CSV is simpler, requires no custom binary format parser, and uses the same trie infrastructure already present in the codebase.
+
+---
+
+## Probe streaming
+
+Ping (single-node mode) and traceroute output is streamed line-by-line via Server-Sent Events. Each line is written as a `data:` field and flushed immediately. The `X-Accel-Buffering: no` response header disables nginx proxy buffering for SSE responses.
+
+WebSocket was evaluated and rejected: it requires a connection upgrade, adds bidirectional framing overhead, and is harder to proxy correctly through nginx without additional configuration.
+
+---
+
+## Multi-node ping
+
+The `/api/ping-all` endpoint fans out to all registered agents in parallel using goroutines. Each agent executes `ping -c 4`, parses the output, and returns structured JSON (`sent`, `received`, `loss`, `rtt_min`, `rtt_avg`, `rtt_max`). The master waits for all goroutines to complete and returns a single JSON response. The UI renders results as a table that populates when the response arrives.
+
+The original ping implementation streamed output from a single selected node via SSE, mirroring traceroute. This was replaced because the parallel table view is more useful for network diagnostics — it shows relative performance across ISPs in a single request.
+
+---
+
+## Rate limiting
+
+Three layers:
+
+**nginx** — `limit_req_zone` at 20 req/s (general) and 6 req/min (`/api/`). Configured in `nginx.conf` and per-vhost. Returns 429 on breach.
+
+**Application token bucket** — per IP, 20 req/min sustained, burst of 5. In-process, no Redis. Implemented in `internal/ratelimit`. Entries are cleaned up after 30 minutes of inactivity.
+
+**Per-IP subprocess semaphore** — each IP may hold at most one active subprocess (ping, traceroute, dig) at a time. Implemented via a `sync.Map` of buffered `chan struct{}` with capacity 1. Prevents a single IP from holding multiple long-running processes simultaneously.
+
+A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent subprocesses across all IPs.
+
+---
+
+## Input validation
+
+All user-supplied targets pass through `internal/validator` before reaching any subprocess. The validator accepts valid IPv4/IPv6 addresses and RFC-compliant hostnames. It rejects inputs containing shell metacharacters. `exec.Command` is called with arguments as a slice — no shell interpolation occurs at any point.
+
+Error messages returned to clients are sanitized to remove internal IP addresses. The `sanitizeErr` function strips `dial tcp <src>->` and similar prefixes from error strings, retaining only the destination and error description.
+
+---
+
+## Security model
+
+- Agent endpoints require `X-Agent-Secret` header. The secret is a 32-byte random hex string shared across all nodes.
+- Agent port 9090 is restricted to the master IP via ufw on each agent node.
+- The agent URL and secret are never returned to clients. The `/api/nodes` endpoint returns only public metadata (ID, name, ISP).
+- The master binary is deployed behind nginx. It binds `127.0.0.1:8082` and is not directly reachable from the internet.
