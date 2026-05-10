@@ -1,0 +1,33 @@
+looking-glass changelog. Most recent changes are at the top.
+
+version 0.4 (2026-05-10)
+    traceroute: enrich hop IPs with ASN and operator name via ipinfo trie
+    ui: add /api/ip-info endpoint for batch GeoIP lookup without BGP lookup
+    ui: fix pre terminal overflow on long lines
+
+version 0.3 (2026-05-08)
+    geoip: add ipinfo Lite CSV loader with radix trie and ASN index
+    bgp: enrich IP lookup with country, continent, and AS operator data
+    bgp: render AS path as directed chain with operator names
+    ssl: strip internal server addresses from error messages
+    ui: fix node selector not populating on traceroute and port tab switch
+
+version 0.2 (2026-05-03)
+    port: add multi-node TCP port check with open/closed/filtered status
+    port: strip http:// and https:// prefixes before resolution
+    ping: replace single-node SSE stream with parallel multi-node probe
+    ping: render results as table with loss% and RTT min/avg/max per node
+    agent: add /ping-summary endpoint returning parsed ping statistics
+    agent: add /portcheck endpoint with 5s TCP connect timeout
+    nodes: add IranianNet probe node
+
+version 0.1 (2026-04-29)
+    initial release
+    master/agent architecture with pre-shared secret authentication
+    ping and traceroute via SSE with source node selection
+    BGP route lookup from local MRT dump via radix trie
+    DNS lookup via dig
+    SSL certificate inspection
+    token bucket rate limiting per IP
+    per-IP subprocess semaphore
+    fail2ban integration

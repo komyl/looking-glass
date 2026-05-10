@@ -417,7 +417,35 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 		"aspath_enriched": aspathEnriched,
 	})
 }
+func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
+	targets := r.URL.Query().Get("targets")
+	if targets == "" {
+		writeError(w, "targets is required", http.StatusBadRequest)
+		return
+	}
 
+	if h.geo == nil {
+		writeJSON(w, map[string]any{})
+		return
+	}
+
+	result := make(map[string]any)
+	for _, t := range strings.Split(targets, ",") {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		if rec := h.geo.Lookup(t); rec != nil {
+			result[t] = map[string]string{
+				"asn":    rec.ASN,
+				"name":   rec.ASName,
+				"domain": rec.ASDomain,
+			}
+		}
+	}
+
+	writeJSON(w, result)
+}
 func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if err := validator.ValidateTarget(target); err != nil {

@@ -103,8 +103,8 @@ select option{background:var(--surf)}
 pre.terminal{
   background:var(--bg);border:1px solid var(--bdr);border-radius:8px;
   padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.65;
-  min-height:180px;max-height:480px;overflow-y:auto;overflow-x:auto;
-  white-space:pre;word-break:normal;
+  min-height:180px;max-height:480px;overflow-y:auto;overflow-x:hidden;
+  white-space:pre-wrap;word-break:break-all;
 }
 pre.terminal::-webkit-scrollbar{width:5px;height:5px}
 pre.terminal::-webkit-scrollbar-track{background:transparent}
@@ -430,15 +430,48 @@ function switchTab(name){
 }
 function setStatus(id,state,text){document.getElementById(id+'-dot').className='dot'+(state?' '+state:'');document.getElementById(id+'-stxt').textContent=text}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-function highlight(raw){
+const ipInfoCache={};
+
+function enrichTraceLine(line,out){
+  const ips=[...line.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)].map(m=>m[1]);
+  const unknown=ips.filter(ip=>!(ip in ipInfoCache));
+  if(!unknown.length){
+    out.innerHTML+=renderTraceLine(line)+'\n';
+    out.scrollTop=out.scrollHeight;
+    return;
+  }
+  fetch('/api/ip-info?targets='+unknown.map(encodeURIComponent).join(','))
+    .then(r=>r.json())
+    .then(data=>{
+      Object.assign(ipInfoCache,data);
+      out.innerHTML+=renderTraceLine(line)+'\n';
+      out.scrollTop=out.scrollHeight;
+    })
+    .catch(()=>{
+      out.innerHTML+=renderTraceLine(line)+'\n';
+      out.scrollTop=out.scrollHeight;
+    });
+}
+
+function renderTraceLine(raw){
   let s=esc(raw);
   if(/^(PING|traceroute to)/i.test(raw))return`<span class="t-head">${s}</span>`;
   if(/^\s*\d+\s+\*\s+\*/.test(raw))return`<span class="t-star">${s}</span>`;
   if(/unreachable|timed? ?out|failed|error|unknown host|bad address/i.test(raw))return`<span class="t-err">${s}</span>`;
   if(/packets transmitted|round-trip|rtt\s/i.test(raw))return`<span class="t-ok">${s}</span>`;
   s=s.replace(/(\d+(?:\.\d+)?)\s*(ms)/g,'<span class="t-time">$1 $2</span>');
-  s=s.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g,'<span class="t-ip">$1</span>');
+  s=s.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g,(match)=>{
+    const info=ipInfoCache[match];
+    if(info&&info.name){
+      return`<span class="t-ip">${match}</span><span style="color:var(--muted2);font-size:11px"> (${esc(info.asn)} ${esc(info.name)})</span>`;
+    }
+    return`<span class="t-ip">${match}</span>`;
+  });
   return s;
+}
+
+function highlight(raw){
+  return renderTraceLine(raw);
 }
 function highlightDig(raw){
   let s=esc(raw);
@@ -551,7 +584,7 @@ function runTrace(){
   trES.onmessage=e=>{
     if(e.data==='[DONE]'){stopTrace('ok');return}
     if(e.data.startsWith('[ERROR]')){out.innerHTML+=`<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`;stopTrace('err');return}
-    out.innerHTML+=highlight(e.data)+'\n';out.scrollTop=out.scrollHeight;
+     if(e.data.trim())enrichTraceLine(e.data,out);
   };
   trES.onerror=()=>{if(trES&&trES.readyState===2)stopTrace('err')};
 }
@@ -684,6 +717,13 @@ document.getElementById('ping-target').addEventListener('keydown',e=>{if(e.key==
 document.getElementById('tr-target').addEventListener('keydown',e=>{if(e.key==='Enter')runTrace()});
 document.getElementById('dig-target').addEventListener('keydown',e=>{if(e.key==='Enter')runDig()});
 document.getElementById('bgp-query').addEventListener('keydown',e=>{if(e.key==='Enter')runBGP()});
+function updateURL(params){
+  const u=new URL(location.href);
+  Object.entries(params).forEach(([k,v])=>v?u.searchParams.set(k,v):u.searchParams.delete(k));
+  history.replaceState({},'',u);
+}
+
+
 function runSSL(){
   const target=document.getElementById('ssl-target').value.trim();
   if(!target)return;
@@ -744,6 +784,7 @@ ${latency}${errRow}
 }
 document.getElementById('port-target').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
 document.getElementById('port-port').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
+
 </script>
 </body>
 </html>
