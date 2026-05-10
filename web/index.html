@@ -717,11 +717,7 @@ document.getElementById('ping-target').addEventListener('keydown',e=>{if(e.key==
 document.getElementById('tr-target').addEventListener('keydown',e=>{if(e.key==='Enter')runTrace()});
 document.getElementById('dig-target').addEventListener('keydown',e=>{if(e.key==='Enter')runDig()});
 document.getElementById('bgp-query').addEventListener('keydown',e=>{if(e.key==='Enter')runBGP()});
-function updateURL(params){
-  const u=new URL(location.href);
-  Object.entries(params).forEach(([k,v])=>v?u.searchParams.set(k,v):u.searchParams.delete(k));
-  history.replaceState({},'',u);
-}
+
 
 
 function runSSL(){
