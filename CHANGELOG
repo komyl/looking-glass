@@ -2,8 +2,14 @@ looking-glass changelog. Most recent changes are at the top.
 
 version 0.4 (2026-05-10)
     traceroute: enrich hop IPs with ASN and operator name via ipinfo trie
+    traceroute: batch hop enrichment to fix out-of-order line rendering
     ui: add /api/ip-info endpoint for batch GeoIP lookup without BGP lookup
     ui: fix pre terminal overflow on long lines
+    ui: strip http/https prefix from user input before sending to server
+    nginx: remove /api/ location block and error_pages include
+    nginx: set limit_req_status 429 to return JSON-compatible error
+    docs: update INSTALL.md to reflect nginx config and add error_pages warning
+
 
 version 0.3 (2026-05-08)
     geoip: add ipinfo Lite CSV loader with radix trie and ASN index
