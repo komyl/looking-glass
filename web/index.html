@@ -510,8 +510,10 @@ fetch('/api/info').then(r=>r.json()).then(d=>{const m=document.getElementById('h
 
 let pingES=null;
 function runPingAll(){
-  const target=document.getElementById('ping-target').value.trim();
-  if(!target)return;
+  let target=document.getElementById('ping-target').value.trim();
+if(!target)return;
+target=target.replace(/^https?:\/\//i,'').replace(/\/.*$/,'');
+document.getElementById('ping-target').value=target;
   const out=document.getElementById('ping-out');
   setStatus('ping','run','Running...');
   document.getElementById('ping-run').disabled=true;
