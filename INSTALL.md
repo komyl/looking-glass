@@ -86,24 +86,12 @@ server {
     listen 80;
     server_name your.domain;
 
-    limit_req zone=ddos_limit burst=20 nodelay;
+    include /etc/nginx/snippets/security_headers.conf;
+
+    limit_req zone=ddos_limit burst=30 nodelay;
+    limit_req_status 429;
 
     location / {
-        proxy_pass         http://127.0.0.1:8082;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        proxy_buffering    off;
-        proxy_cache        off;
-        proxy_read_timeout 130s;
-        proxy_set_header   X-Accel-Buffering no;
-    }
-
-    location /api/ {
-        limit_req        zone=api_limit burst=3 nodelay;
-        limit_req_status 429;
         proxy_pass         http://127.0.0.1:8082;
         proxy_http_version 1.1;
         proxy_set_header   Host              $host;
@@ -122,8 +110,9 @@ Add to `nginx.conf` inside `http {}`:
 
 ```nginx
 limit_req_zone $binary_remote_addr zone=ddos_limit:10m rate=20r/s;
-limit_req_zone $binary_remote_addr zone=api_limit:10m rate=6r/m;
 ```
+
+**Important:** do not include `error_pages.conf` snippets in this server block. Error page redirects return HTML to the client, which breaks JSON API responses and causes parse errors in the UI.
 
 ### fail2ban
 
