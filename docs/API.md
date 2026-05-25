@@ -95,7 +95,19 @@ Status: `open`, `closed` (refused), `filtered` (timeout).
 
 ### GET /api/dig
 
-SSE stream. Params: `target` (required), `qtype` (A, AAAA, MX, NS, TXT, CNAME, SOA, PTR — default A).
+**Parameters:**
+- `target` (required): Domain name
+- `qtype`: Record type (`A`, `AAAA`, `MX`, `NS`, `TXT`, `CNAME`, `SOA`, `PTR`). Default: `A`
+- `debug`: Set to `1` to see per-resolver status
+
+**Behavior:**
+Returns summarized results instead of raw `dig` output.  
+Each record shows how many resolvers returned it.
+
+**Example response lines:**
+example.com. IN A 93.184.216.34   (found on 12 resolvers)
+=== Summary ===
+Record found on 12 out of 15 resolvers
 
 ---
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -20,6 +21,15 @@ import (
 	"looking-glass/internal/validator"
 )
 
+var defaultResolvers = []string{
+	"8.8.8.8",
+	"8.8.4.4",
+	"1.1.1.1",
+	"1.0.0.1",
+	"9.9.9.9",
+	"149.112.112.112",
+}
+
 type Handler struct {
 	store     *bgp.Store
 	geo       *geoip.DB
@@ -27,15 +37,25 @@ type Handler struct {
 	index     []byte
 	semaphore chan struct{}
 	ipSem     sync.Map
+	resolvers []string
 }
 
 func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byte) *Handler {
+	resolvers := defaultResolvers
+	if env := os.Getenv("LOOKING_GLASS_RESOLVERS"); env != "" {
+		resolvers = strings.Split(env, ",")
+		for i := range resolvers {
+			resolvers[i] = strings.TrimSpace(resolvers[i])
+		}
+	}
+
 	return &Handler{
 		store:     store,
 		geo:       geo,
 		rl:        rl,
 		index:     indexHTML,
 		semaphore: make(chan struct{}, 30),
+		resolvers: resolvers,
 	}
 }
 
@@ -294,6 +314,9 @@ func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
 	default:
 		qtype = "A"
 	}
+
+	debug := r.URL.Query().Get("debug") == "1"
+
 	flusher, ok := sseHeaders(w)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
@@ -312,30 +335,88 @@ func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.releaseIP(ip)
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "dig", "@YOUR_DNS_SERVER", "+noall", "+answer", "+comments", target, qtype)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		sseErr(w, flusher, "internal error: "+err.Error())
-		return
+
+	const maxConcurrent = 8
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	answers := make(map[string]int)
+	successCount := 0
+	total := len(h.resolvers)
+
+	for _, resolver := range h.resolvers {
+		wg.Add(1)
+		go func(resolver string) {
+			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			cmd := exec.CommandContext(cmdCtx, "dig", "@"+resolver, "+noall", "+answer", "+comments", "+timeout=4", target, qtype)
+			stdout, err := cmd.StdoutPipe()
+			if err != nil {
+				if debug {
+					sseLine(w, flusher, fmt.Sprintf("[Resolver %s] internal error", resolver))
+				}
+				return
+			}
+			cmd.Stderr = cmd.Stdout
+
+			if err := cmd.Start(); err != nil {
+				if debug {
+					sseLine(w, flusher, fmt.Sprintf("[Resolver %s] dig failed to start", resolver))
+				}
+				return
+			}
+
+			hasAnswer := false
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.Contains(line, "ANSWER SECTION") {
+					hasAnswer = true
+					continue
+				}
+				if hasAnswer && strings.TrimSpace(line) != "" && !strings.HasPrefix(strings.TrimSpace(line), ";") {
+					parts := strings.Fields(line)
+					if len(parts) >= 5 {
+						normalized := parts[0] + " IN " + parts[3] + " " + strings.Join(parts[4:], " ")
+						mu.Lock()
+						answers[normalized]++
+						mu.Unlock()
+					}
+				}
+			}
+			cmd.Wait()
+
+			if hasAnswer {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
+			} else if debug {
+				sseLine(w, flusher, fmt.Sprintf("[Resolver %s] NOERROR (no record) or SERVFAIL/timeout", resolver))
+			}
+		}(resolver)
 	}
-	cmd.Stderr = cmd.Stdout
-	if err := cmd.Start(); err != nil {
-		sseErr(w, flusher, "dig failed to start: "+err.Error())
-		return
-	}
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		select {
-		case <-r.Context().Done():
-			cmd.Process.Kill()
-			return
-		default:
+
+	wg.Wait()
+
+	if len(answers) == 0 {
+		sseLine(w, flusher, "No record found on any resolver")
+	} else {
+		for record, count := range answers {
+			sseLine(w, flusher, fmt.Sprintf("%s   (found on %d resolvers)", record, count))
 		}
-		sseLine(w, flusher, scanner.Text())
 	}
-	cmd.Wait()
+
+	summary := fmt.Sprintf("=== Summary ===\nRecord found on %d out of %d resolvers", successCount, total)
+	sseLine(w, flusher, summary)
 	sseDone(w, flusher)
 }
 
@@ -383,7 +464,6 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 		bgp.Route
 		Geo *geoip.Record `json:"geo,omitempty"`
 	}
-
 	enriched := make([]enrichedRoute, len(routes))
 	for i, r := range routes {
 		er := enrichedRoute{Route: r}
@@ -392,17 +472,18 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 		}
 		enriched[i] = er
 	}
-
-	type asnInfo struct {
+	var aspathEnriched []struct {
 		ASN    int    `json:"asn"`
 		Name   string `json:"name,omitempty"`
 		Domain string `json:"domain,omitempty"`
 	}
-
-	var aspathEnriched []asnInfo
 	if h.geo != nil && len(routes) > 0 {
 		for _, asn := range routes[0].ASPath {
-			info := asnInfo{ASN: asn}
+			info := struct {
+				ASN    int    `json:"asn"`
+				Name   string `json:"name,omitempty"`
+				Domain string `json:"domain,omitempty"`
+			}{ASN: asn}
 			if rec := h.geo.LookupASN(asn); rec != nil {
 				info.Name = rec.ASName
 				info.Domain = rec.ASDomain
@@ -410,7 +491,6 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 			aspathEnriched = append(aspathEnriched, info)
 		}
 	}
-
 	writeJSON(w, map[string]any{
 		"count":           len(enriched),
 		"routes":          enriched,
@@ -423,12 +503,10 @@ func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "targets is required", http.StatusBadRequest)
 		return
 	}
-
 	if h.geo == nil {
 		writeJSON(w, map[string]any{})
 		return
 	}
-
 	result := make(map[string]any)
 	for _, t := range strings.Split(targets, ",") {
 		t = strings.TrimSpace(t)
@@ -443,9 +521,9 @@ func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
 	writeJSON(w, result)
 }
+
 func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if err := validator.ValidateTarget(target); err != nil {

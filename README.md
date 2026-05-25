@@ -18,10 +18,11 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 - Multi-node ping — all nodes probed in parallel, results in a single table
 - Traceroute — user selects source node. Output streamed in real time via SSE. Each hop IP is enriched with ASN and operator name from the ipinfo dataset.
 - Port check — TCP connect with open/closed/filtered status
-- DNS lookup — A, AAAA, MX, NS, TXT, CNAME, SOA, PTR
+- DNS lookup — queries multiple resolvers in parallel and returns clean grouped results (shows how many resolvers returned each record)
 - SSL inspection — certificate details, validity window, SAN list
 - BGP route lookup — IP, prefix, ASN; enriched with GeoIP and AS operator names
 - AS path rendered as directed chain: `AS34549 (meerfarbig) → AS15169 (Google LLC)`
+- Shareable results — "Copy Link" button available on all tools. Generated links can auto-run the check when opened (`run=1`)
 
 ## Source layout
 

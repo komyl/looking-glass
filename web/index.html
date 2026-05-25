@@ -1,525 +1,1074 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Looking Glass</title>
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0b0f17;--surf:#131922;--surf2:#1a2233;
-  --bdr:#2a3850;--bdr2:#364a68;
-  --accent:#00e5b0;
-  --blue:#4d9fff;--blue-dim:rgba(77,159,255,.12);
-  --purple:#c084fc;--purple-dim:rgba(192,132,252,.12);
-  --green:#86efac;--yellow:#fde68a;--red:#f87171;
-  --text:#cdd6f4;--muted:#5a6e88;--muted2:#7a8fa8;
-  --mono:'Cascadia Code','Fira Code','JetBrains Mono','Courier New',monospace;
-  --ui:system-ui,-apple-system,'Segoe UI',sans-serif;
-}
-body{background:var(--bg);color:var(--text);font-family:var(--ui);min-height:100vh;font-size:14px;line-height:1.5;display:flex;flex-direction:column}
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Looking Glass</title>
+    <style>
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
 
-header{
-  background:var(--surf);border-bottom:1px solid var(--bdr);
-  height:56px;display:flex;align-items:center;justify-content:space-between;
-  padding:0 20px;position:sticky;top:0;z-index:10;gap:12px;
-}
-.logo{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:700;color:var(--accent);white-space:nowrap}
-.hdr-meta{font-size:11.5px;color:var(--muted);text-align:right;line-height:1.7;min-width:0}
-.hdr-meta span{color:var(--text);font-family:var(--mono)}
+        :root {
+            --bg: #0b0f17;
+            --surf: #131922;
+            --surf2: #1a2233;
+            --bdr: #2a3850;
+            --bdr2: #364a68;
+            --accent: #00e5b0;
+            --blue: #4d9fff;
+            --blue-dim: rgba(77, 159, 255, .12);
+            --purple: #c084fc;
+            --purple-dim: rgba(192, 132, 252, .12);
+            --green: #86efac;
+            --yellow: #fde68a;
+            --red: #f87171;
+            --text: #cdd6f4;
+            --muted: #5a6e88;
+            --muted2: #7a8fa8;
+            --mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Courier New', monospace;
+            --ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        }
 
-main{max-width:920px;margin:20px auto;padding:0 14px;flex:1;width:100%}
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: var(--ui);
+            min-height: 100vh;
+            font-size: 14px;
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column
+        }
 
-.ip-bar{
-  background:var(--surf);border:1px solid var(--bdr);border-radius:10px;
-  padding:10px 16px;margin-bottom:16px;
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-}
-.ip-label{font-size:12px;color:var(--muted);flex-shrink:0}
-.ip-value{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent)}
+        header {
+            background: var(--surf);
+            border-bottom: 1px solid var(--bdr);
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 20px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            gap: 12px;
+        }
 
-.tabs{
-  display:flex;gap:3px;background:var(--surf);border:1px solid var(--bdr);
-  border-radius:10px;padding:4px;margin-bottom:14px;overflow-x:auto;
-  scrollbar-width:none;
-}
-.tabs::-webkit-scrollbar{display:none}
-.tab{
-  flex:1;min-width:70px;display:flex;align-items:center;justify-content:center;gap:6px;
-  padding:8px 10px;border:none;border-radius:7px;
-  background:transparent;color:var(--muted);
-  font-size:12.5px;font-weight:600;cursor:pointer;transition:all .15s;
-  font-family:var(--ui);white-space:nowrap;position:relative;
-}
-.tab:hover{background:var(--surf2);color:var(--text)}
-.tab.active{background:var(--accent);color:#04120e}
-.tab:not(.active){color:var(--muted2)}
-.tab:not(.active):not(:last-child)::after{content:'';position:absolute;right:0;top:20%;height:60%;width:1px;background:var(--bdr)}
-.tab svg{flex-shrink:0;width:13px;height:13px}
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--accent);
+            white-space: nowrap
+        }
 
-.panel{display:none}
-.panel.active{display:block}
-.card{background:var(--surf);border:1px solid var(--bdr);border-radius:10px;padding:16px;margin-bottom:12px}
+        .hdr-meta {
+            font-size: 11.5px;
+            color: var(--muted);
+            text-align: right;
+            line-height: 1.7;
+            min-width: 0
+        }
 
-.form-row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px}
-.fg{display:flex;flex-direction:column;gap:4px;flex:1;min-width:140px}
-.fg.narrow{flex:0 0 auto}
-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-input[type=text],select{
-  background:var(--bg);border:1px solid var(--bdr);border-radius:7px;
-  padding:9px 12px;color:var(--text);font-size:13px;
-  font-family:var(--mono);outline:none;width:100%;
-  transition:border-color .15s;-webkit-appearance:none;
-}
-input[type=text]:focus,select:focus{border-color:var(--accent)}
-select{
-  cursor:pointer;font-family:var(--ui);
-  -webkit-appearance:none;appearance:none;
-  padding-right:32px;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2300e5b0' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat:no-repeat;
-  background-position:right 10px center;
-  border-color:var(--bdr2);
-}
-select:hover{border-color:var(--accent)}
-select option{background:var(--surf)}
+        .hdr-meta span {
+            color: var(--text);
+            font-family: var(--mono)
+        }
 
-.btn{
-  padding:9px 18px;border:none;border-radius:7px;font-size:13px;font-weight:700;
-  cursor:pointer;transition:all .15s;white-space:nowrap;font-family:var(--ui);
-  display:inline-flex;align-items:center;gap:6px;
-}
-.btn-run{background:var(--accent);color:#04120e;width:100%}
-.btn-run:hover{filter:brightness(1.1)}
-.btn-run:disabled{opacity:.45;cursor:not-allowed;filter:none}
-.btn-stop{background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.3);color:var(--red)}
-.btn-stop:hover{background:rgba(248,113,113,.25)}
-.hidden{display:none!important}
+        main {
+            max-width: 920px;
+            margin: 20px auto;
+            padding: 0 14px;
+            flex: 1;
+            width: 100%
+        }
 
-.out-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:6px}
-.out-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-.out-controls{display:flex;align-items:center;gap:8px}
+        .ip-bar {
+            background: var(--surf);
+            border: 1px solid var(--bdr);
+            border-radius: 10px;
+            padding: 10px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
 
-pre.terminal{
-  background:var(--bg);border:1px solid var(--bdr);border-radius:8px;
-  padding:12px 14px;font-family:var(--mono);font-size:12px;line-height:1.65;
-  min-height:180px;max-height:480px;overflow-y:auto;overflow-x:hidden;
-  white-space:pre-wrap;word-break:break-all;
-}
-pre.terminal::-webkit-scrollbar{width:5px;height:5px}
-pre.terminal::-webkit-scrollbar-track{background:transparent}
-pre.terminal::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:3px}
-.ph{color:var(--muted);font-style:italic}
+        .ip-label {
+            font-size: 12px;
+            color: var(--muted);
+            flex-shrink: 0
+        }
 
-.t-time{color:var(--green)}
-.t-ip{color:var(--blue)}
-.t-star{color:var(--muted)}
-.t-err{color:var(--red)}
-.t-head{color:var(--yellow)}
-.t-ok{color:var(--green)}
-.t-dns-key{color:var(--accent)}
-.t-dns-val{color:var(--blue)}
-.t-dns-ttl{color:var(--muted2)}
-.t-dns-type{color:var(--purple)}
+        .ip-value {
+            font-family: var(--mono);
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent)
+        }
 
-.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted2)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--bdr2);flex-shrink:0}
-.dot.run{background:var(--accent);animation:pulse 1.1s ease-in-out infinite}
-.dot.ok{background:var(--green)}
-.dot.err{background:var(--red)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+        .tabs {
+            display: flex;
+            gap: 3px;
+            background: var(--surf);
+            border: 1px solid var(--bdr);
+            border-radius: 10px;
+            padding: 4px;
+            margin-bottom: 14px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
 
-.bgp-out{
-  background:var(--bg);border:1px solid var(--bdr);border-radius:8px;
-  padding:12px;min-height:180px;max-height:560px;overflow-y:auto;
-}
-.bgp-out::-webkit-scrollbar{width:5px}
-.bgp-out::-webkit-scrollbar-track{background:transparent}
-.bgp-out::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:3px}
+        .tabs::-webkit-scrollbar {
+            display: none
+        }
 
-.rcard{background:var(--surf2);border:1px solid var(--bdr);border-radius:8px;padding:12px 14px;margin-bottom:10px}
-.rcard:last-child{margin-bottom:0}
-.rprefix{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);margin-bottom:10px;word-break:break-all}
-.rattrs{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
-.rattr{font-size:12px}
-.rattr-k{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-.rattr-v{font-family:var(--mono);color:var(--text);word-break:break-all}
-.rattr.wide{grid-column:1/-1}
-.asn-tag{display:inline-block;background:var(--purple-dim);border:1px solid rgba(192,132,252,.25);color:var(--purple);border-radius:4px;padding:1px 6px;font-size:11px;margin:1px;font-family:var(--mono)}
-.comm-tag{display:inline-block;background:var(--blue-dim);border:1px solid rgba(77,159,255,.25);color:var(--blue);border-radius:4px;padding:1px 6px;font-size:11px;margin:1px;font-family:var(--mono)}
-.origin-i{color:var(--green)}
-.origin-e{color:var(--yellow)}
-.origin-q{color:var(--muted2)}
-.notice{font-size:12px;color:var(--yellow);padding:4px 0;margin-bottom:8px}
+        .tab {
+            flex: 1;
+            min-width: 70px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border: none;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .15s;
+            font-family: var(--ui);
+            white-space: nowrap;
+            position: relative;
+        }
 
-.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--bdr2);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
-@keyframes spin{to{transform:rotate(360deg)}}
+        .tab:hover {
+            background: var(--surf2);
+            color: var(--text)
+        }
 
-footer{margin-top:20px;padding:12px 16px;border-top:1px solid var(--bdr);text-align:center;font-size:12px;color:var(--muted)}
-footer a{color:var(--accent);text-decoration:none}
+        .tab.active {
+            background: var(--accent);
+            color: #04120e
+        }
 
-@media(max-width:600px){
-  header{height:auto;padding:10px 14px;flex-wrap:wrap}
-  .hdr-meta{text-align:left;font-size:11px}
-  .form-row{flex-wrap:wrap}
-  .fg{width:100%;min-width:unset;flex:1 1 100%}
-  .fg.narrow{flex:1 1 auto;min-width:unset;width:auto}
-  .btn-run{width:auto}
-  .rattrs{grid-template-columns:1fr 1fr}
-  pre.terminal{font-size:11px;min-height:140px;max-height:360px}
-  main{padding:0 10px;margin:12px auto}
-  .tab:not(.active):not(:last-child)::after{display:none}
-  .tab:not(.active){background:var(--surf2)}
-  .tabs{gap:3px}
-}
-</style>
+        .tab:not(.active) {
+            color: var(--muted2)
+        }
+
+        .tab:not(.active):not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 20%;
+            height: 60%;
+            width: 1px;
+            background: var(--bdr)
+        }
+
+        .tab svg {
+            flex-shrink: 0;
+            width: 13px;
+            height: 13px
+        }
+
+        .panel {
+            display: none
+        }
+
+        .panel.active {
+            display: block
+        }
+
+        .card {
+            background: var(--surf);
+            border: 1px solid var(--bdr);
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 12px
+        }
+
+        .form-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-bottom: 12px
+        }
+
+        .fg {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 140px
+        }
+
+        .fg.narrow {
+            flex: 0 0 auto
+        }
+
+        label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .5px
+        }
+
+        input[type=text],
+        select {
+            background: var(--bg);
+            border: 1px solid var(--bdr);
+            border-radius: 7px;
+            padding: 9px 12px;
+            color: var(--text);
+            font-size: 13px;
+            font-family: var(--mono);
+            outline: none;
+            width: 100%;
+            transition: border-color .15s;
+            -webkit-appearance: none;
+        }
+
+        input[type=text]:focus,
+        select:focus {
+            border-color: var(--accent)
+        }
+
+        select {
+            cursor: pointer;
+            font-family: var(--ui);
+            -webkit-appearance: none;
+            appearance: none;
+            padding-right: 32px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2300e5b0' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            border-color: var(--bdr2);
+        }
+
+        select:hover {
+            border-color: var(--accent)
+        }
+
+        select option {
+            background: var(--surf)
+        }
+
+        .btn {
+            padding: 9px 18px;
+            border: none;
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all .15s;
+            white-space: nowrap;
+            font-family: var(--ui);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-run {
+            background: var(--accent);
+            color: #04120e;
+            width: 100%
+        }
+
+        .btn-run:hover {
+            filter: brightness(1.1)
+        }
+
+        .btn-run:disabled {
+            opacity: .45;
+            cursor: not-allowed;
+            filter: none
+        }
+
+        .btn-stop {
+            background: rgba(248, 113, 113, .15);
+            border: 1px solid rgba(248, 113, 113, .3);
+            color: var(--red)
+        }
+
+        .btn-stop:hover {
+            background: rgba(248, 113, 113, .25)
+        }
+
+        .hidden {
+            display: none !important
+        }
+
+        .out-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+            gap: 6px
+        }
+
+        .out-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: .5px
+        }
+
+        .out-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        pre.terminal {
+            background: var(--bg);
+            border: 1px solid var(--bdr);
+            border-radius: 8px;
+            padding: 12px 14px;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.65;
+            min-height: 180px;
+            max-height: 480px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        pre.terminal::-webkit-scrollbar {
+            width: 5px;
+            height: 5px
+        }
+
+        pre.terminal::-webkit-scrollbar-track {
+            background: transparent
+        }
+
+        pre.terminal::-webkit-scrollbar-thumb {
+            background: var(--bdr2);
+            border-radius: 3px
+        }
+
+        .ph {
+            color: var(--muted);
+            font-style: italic
+        }
+
+        .t-time {
+            color: var(--green)
+        }
+
+        .t-ip {
+            color: var(--blue)
+        }
+
+        .t-star {
+            color: var(--muted)
+        }
+
+        .t-err {
+            color: var(--red)
+        }
+
+        .t-head {
+            color: var(--yellow)
+        }
+
+        .t-ok {
+            color: var(--green)
+        }
+
+        .t-dns-key {
+            color: var(--accent)
+        }
+
+        .t-dns-val {
+            color: var(--blue)
+        }
+
+        .t-dns-ttl {
+            color: var(--muted2)
+        }
+
+        .t-dns-type {
+            color: var(--purple)
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--muted2)
+        }
+
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--bdr2);
+            flex-shrink: 0
+        }
+
+        .dot.run {
+            background: var(--accent);
+            animation: pulse 1.1s ease-in-out infinite
+        }
+
+        .dot.ok {
+            background: var(--green)
+        }
+
+        .dot.err {
+            background: var(--red)
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .25
+            }
+        }
+
+        .bgp-out {
+            background: var(--bg);
+            border: 1px solid var(--bdr);
+            border-radius: 8px;
+            padding: 12px;
+            min-height: 180px;
+            max-height: 560px;
+            overflow-y: auto;
+        }
+
+        .bgp-out::-webkit-scrollbar {
+            width: 5px
+        }
+
+        .bgp-out::-webkit-scrollbar-track {
+            background: transparent
+        }
+
+        .bgp-out::-webkit-scrollbar-thumb {
+            background: var(--bdr2);
+            border-radius: 3px
+        }
+
+        .rcard {
+            background: var(--surf2);
+            border: 1px solid var(--bdr);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px
+        }
+
+        .rcard:last-child {
+            margin-bottom: 0
+        }
+
+        .rprefix {
+            font-family: var(--mono);
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 10px;
+            word-break: break-all
+        }
+
+        .rattrs {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 8px
+        }
+
+        .rattr {
+            font-size: 12px
+        }
+
+        .rattr-k {
+            color: var(--muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .5px;
+            margin-bottom: 2px
+        }
+
+        .rattr-v {
+            font-family: var(--mono);
+            color: var(--text);
+            word-break: break-all
+        }
+
+        .rattr.wide {
+            grid-column: 1/-1
+        }
+
+        .asn-tag {
+            display: inline-block;
+            background: var(--purple-dim);
+            border: 1px solid rgba(192, 132, 252, .25);
+            color: var(--purple);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 11px;
+            margin: 1px;
+            font-family: var(--mono)
+        }
+
+        .comm-tag {
+            display: inline-block;
+            background: var(--blue-dim);
+            border: 1px solid rgba(77, 159, 255, .25);
+            color: var(--blue);
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-size: 11px;
+            margin: 1px;
+            font-family: var(--mono)
+        }
+
+        .origin-i {
+            color: var(--green)
+        }
+
+        .origin-e {
+            color: var(--yellow)
+        }
+
+        .origin-q {
+            color: var(--muted2)
+        }
+
+        .notice {
+            font-size: 12px;
+            color: var(--yellow);
+            padding: 4px 0;
+            margin-bottom: 8px
+        }
+
+        .spin {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--bdr2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+            vertical-align: middle
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        footer {
+            margin-top: 20px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--bdr);
+            text-align: center;
+            font-size: 12px;
+            color: var(--muted)
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none
+        }
+
+        @media(max-width:600px) {
+            header {
+                height: auto;
+                padding: 10px 14px;
+                flex-wrap: wrap
+            }
+
+            .hdr-meta {
+                text-align: left;
+                font-size: 11px
+            }
+
+            .form-row {
+                flex-wrap: wrap
+            }
+
+            .fg {
+                width: 100%;
+                min-width: unset;
+                flex: 1 1 100%
+            }
+
+            .fg.narrow {
+                flex: 1 1 auto;
+                min-width: unset;
+                width: auto
+            }
+
+            .btn-run {
+                width: auto
+            }
+
+            .rattrs {
+                grid-template-columns: 1fr 1fr
+            }
+
+            pre.terminal {
+                font-size: 11px;
+                min-height: 140px;
+                max-height: 360px
+            }
+
+            main {
+                padding: 0 10px;
+                margin: 12px auto
+            }
+
+            .tab:not(.active):not(:last-child)::after {
+                display: none
+            }
+
+            .tab:not(.active) {
+                background: var(--surf2)
+            }
+
+            .tabs {
+                gap: 3px
+            }
+        }
+    </style>
 </head>
+
 <body>
-<header>
-  <div class="logo">
-    <svg width="24" height="24" viewBox="0 0 26 26" fill="none">
-      <circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.4"/>
-      <ellipse cx="13" cy="13" rx="5.5" ry="11" stroke="currentColor" stroke-width="1.4"/>
-      <line x1="2" y1="13" x2="24" y2="13" stroke="currentColor" stroke-width="1.4"/>
-      <line x1="4.5" y1="7" x2="21.5" y2="7" stroke="currentColor" stroke-width="1.1" opacity=".6"/>
-      <line x1="4.5" y1="19" x2="21.5" y2="19" stroke="currentColor" stroke-width="1.1" opacity=".6"/>
-    </svg>
-    Looking Glass
-  </div>
-  <div class="hdr-meta" id="hdrMeta">Loading&hellip;</div>
-</header>
+    <header>
+        <div class="logo">
+            <svg width="24" height="24" viewBox="0 0 26 26" fill="none">
+                <circle cx="13" cy="13" r="11" stroke="currentColor" stroke-width="1.4" />
+                <ellipse cx="13" cy="13" rx="5.5" ry="11" stroke="currentColor" stroke-width="1.4" />
+                <line x1="2" y1="13" x2="24" y2="13" stroke="currentColor" stroke-width="1.4" />
+                <line x1="4.5" y1="7" x2="21.5" y2="7" stroke="currentColor" stroke-width="1.1" opacity=".6" />
+                <line x1="4.5" y1="19" x2="21.5" y2="19" stroke="currentColor" stroke-width="1.1" opacity=".6" />
+            </svg>
+            Looking Glass
+        </div>
+        <div class="hdr-meta" id="hdrMeta">Loading&hellip;</div>
+    </header>
+    <main>
+        <div class="ip-bar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+            </svg>
+            <span class="ip-label">Your IP</span>
+            <span class="ip-value" id="clientIP"><span class="spin"></span></span>
+        </div>
+        <div class="tabs">
+            <button class="tab active" id="tab-ping" onclick="switchTab('ping')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                </svg>
+                <span>Ping</span>
+            </button>
+            <button class="tab" id="tab-traceroute" onclick="switchTab('traceroute')">
+                <span>Traceroute</span>
+            </button>
+            <button class="tab" id="tab-dig" onclick="switchTab('dig')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path
+                        d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                </svg>
+                <span>DNS</span>
+            </button>
+            <button class="tab" id="tab-port" onclick="switchTab('port')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <rect x="2" y="3" width="20" height="14" rx="2" />
+                    <path d="M8 21h8M12 17v4" />
+                    <circle cx="12" cy="10" r="2" />
+                </svg>
+                <span>Port</span>
+            </button>
+            <button class="tab" id="tab-ssl" onclick="switchTab('ssl')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                <span>SSL</span>
+            </button>
+            <button class="tab" id="tab-bgp" onclick="switchTab('bgp')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+                    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                </svg>
+                <span>BGP</span>
+            </button>
+        </div>
 
-<main>
-  <div class="ip-bar">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-    <span class="ip-label">Your IP</span>
-    <span class="ip-value" id="clientIP"><span class="spin"></span></span>
-  </div>
+        <!-- PING -->
+        <div class="panel active" id="panel-ping">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Target</label>
+                        <input type="text" id="ping-target" placeholder="1.1.1.1 or example.ir" autocomplete="off"
+                            autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" id="ping-run" onclick="runPingAll()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M5 3l14 9-14 9V3z" />
+                            </svg>
+                            Run
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Results</span>
+                    <span class="status"><span class="dot" id="ping-dot"></span><span id="ping-stxt">Ready</span></span>
+                    <button onclick="copyShareLink(this)" class="btn"
+                        style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                        Link</button>
+                </div>
+                <div id="ping-out" style="overflow-x:auto">
+                    <span class="ph">Enter a target and press Run</span>
+                </div>
+            </div>
+        </div>
 
-  <div class="tabs">
-    <button class="tab active" id="tab-ping" onclick="switchTab('ping')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      <span>Ping</span>
-    </button>
-    <button class="tab" id="tab-traceroute" onclick="switchTab('traceroute')">
-      <span>Traceroute</span>
-     </button>
-    <button class="tab" id="tab-dig" onclick="switchTab('dig')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-      <span>DNS</span>
-    </button>
-    <button class="tab" id="tab-port" onclick="switchTab('port')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="12" cy="10" r="2"/></svg>
-      <span>Port</span>
-    </button>
-    <button class="tab" id="tab-ssl" onclick="switchTab('ssl')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      <span>SSL</span>
-    </button>
-    <button class="tab" id="tab-bgp" onclick="switchTab('bgp')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-      <span>BGP</span>
-    </button>
-  </div>
+        <!-- TRACEROUTE -->
+        <div class="panel" id="panel-traceroute">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Target</label>
+                        <input type="text" id="tr-target" placeholder="10.0.0.1 or server.example.ir" autocomplete="off"
+                            autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>Source Node</label>
+                        <select id="tr-node"></select>
+                    </div>
+                    <div class="fg narrow">
+                        <label>Max Hops</label>
+                        <select id="tr-hops">
+                            <option value="20">20 hops</option>
+                            <option value="30" selected>30 hops</option>
+                        </select>
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" id="tr-run" onclick="runTrace()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M5 3l14 9-14 9V3z" />
+                            </svg>
+                            Run
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Output</span>
+                    <div class="out-controls">
+                        <span class="status"><span class="dot" id="tr-dot"></span><span id="tr-stxt">Ready</span></span>
+                        <button onclick="copyShareLink(this)" class="btn"
+                            style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                            Link</button>
+                        <button class="btn btn-stop hidden" id="tr-stop" onclick="stopTrace()">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                                <rect x="4" y="4" width="16" height="16" />
+                            </svg>
+                            Stop
+                        </button>
+                    </div>
+                </div>
+                <pre class="terminal" id="tr-out"><span class="ph">Enter a target and press Run</span></pre>
+            </div>
+        </div>
 
-  <!-- PING -->
-  <div class="panel active" id="panel-ping">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg">
-          <label>Target</label>
-          <input type="text" id="ping-target" placeholder="1.1.1.1 or example.ir" autocomplete="off" autocorrect="off" spellcheck="false"/>
+        <!-- DNS -->
+        <div class="panel" id="panel-dig">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Domain</label>
+                        <input type="text" id="dig-target" placeholder="example.ir" autocomplete="off" autocorrect="off"
+                            spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>Record Type</label>
+                        <select id="dig-qtype">
+                            <option value="A">A</option>
+                            <option value="AAAA">AAAA</option>
+                            <option value="MX">MX</option>
+                            <option value="NS">NS</option>
+                            <option value="TXT">TXT</option>
+                            <option value="CNAME">CNAME</option>
+                            <option value="SOA">SOA</option>
+                            <option value="PTR">PTR</option>
+                        </select>
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" id="dig-run" onclick="runDig()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <path d="m21 21-4.35-4.35" />
+                            </svg>
+                            Lookup
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Output</span>
+                    <div class="out-controls">
+                        <span class="status"><span class="dot" id="dig-dot"></span><span
+                                id="dig-stxt">Ready</span></span>
+                        <button onclick="copyShareLink(this)" class="btn"
+                            style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                            Link</button>
+                    </div>
+                </div>
+                <div class="bgp-out" id="dig-out"><span class="ph">Enter a domain and press Lookup</span></div>
+            </div>
         </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" id="ping-run" onclick="runPingAll()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
-            Run
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Results</span>
-        <span class="status"><span class="dot" id="ping-dot"></span><span id="ping-stxt">Ready</span></span>
-      </div>
-      <div id="ping-out" style="overflow-x:auto">
-        <span class="ph">Enter a target and press Run</span>
-      </div>
-    </div>
-  </div>
 
-  <!-- TRACEROUTE -->
-  <div class="panel" id="panel-traceroute">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg">
-          <label>Target</label>
-          <input type="text" id="tr-target" placeholder="10.0.0.1 or server.example.ir" autocomplete="off" autocorrect="off" spellcheck="false"/>
+        <!-- PORT CHECK -->
+        <div class="panel" id="panel-port">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Target</label>
+                        <input type="text" id="port-target" placeholder="example.ir or 1.2.3.4" autocomplete="off"
+                            autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>Port</label>
+                        <input type="text" id="port-port" placeholder="443" autocomplete="off" spellcheck="false"
+                            style="width:90px" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>Source Node</label>
+                        <select id="port-node"></select>
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" onclick="runPort()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <path d="m21 21-4.35-4.35" />
+                            </svg>
+                            Check
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Result</span>
+                    <span class="status"><span class="dot" id="port-dot"></span><span id="port-stxt">Ready</span></span>
+                    <button onclick="copyShareLink(this)" class="btn"
+                        style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                        Link</button>
+                </div>
+                <div class="bgp-out" id="port-out"><span class="ph">Enter a target and port, then press Check</span>
+                </div>
+            </div>
         </div>
-        <div class="fg narrow">
-          <label>Source Node</label>
-          <select id="tr-node"></select>
-        </div>
-        <div class="fg narrow">
-          <label>Max Hops</label>
-          <select id="tr-hops">
-            <option value="20">20 hops</option>
-            <option value="30" selected>30 hops</option>
-          </select>
-        </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" id="tr-run" onclick="runTrace()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 9-14 9V3z"/></svg>
-            Run
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Output</span>
-        <div class="out-controls">
-          <span class="status"><span class="dot" id="tr-dot"></span><span id="tr-stxt">Ready</span></span>
-          <button class="btn btn-stop hidden" id="tr-stop" onclick="stopTrace()">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
-            Stop
-          </button>
-        </div>
-      </div>
-      <pre class="terminal" id="tr-out"><span class="ph">Enter a target and press Run</span></pre>
-    </div>
-  </div>
 
-  <!-- DNS -->
-  <div class="panel" id="panel-dig">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg">
-          <label>Domain</label>
-          <input type="text" id="dig-target" placeholder="example.ir" autocomplete="off" autocorrect="off" spellcheck="false"/>
+        <!-- SSL -->
+        <div class="panel" id="panel-ssl">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Domain or Host</label>
+                        <input type="text" id="ssl-target" placeholder="parspack.com or example.ir:8443"
+                            autocomplete="off" autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" onclick="runSSL()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5">
+                                <rect x="3" y="11" width="18" height="11" rx="2" />
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                            </svg>
+                            Check
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Result</span>
+                    <span class="status"><span class="dot" id="ssl-dot"></span><span id="ssl-stxt">Ready</span></span>
+                    <button onclick="copyShareLink(this)" class="btn"
+                        style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                        Link</button>
+                </div>
+                <div class="bgp-out" id="ssl-out"><span class="ph">Enter a domain and press Check</span></div>
+            </div>
         </div>
-        <div class="fg narrow">
-          <label>Record Type</label>
-          <select id="dig-qtype">
-            <option value="A">A</option>
-            <option value="AAAA">AAAA</option>
-            <option value="MX">MX</option>
-            <option value="NS">NS</option>
-            <option value="TXT">TXT</option>
-            <option value="CNAME">CNAME</option>
-            <option value="SOA">SOA</option>
-            <option value="PTR">PTR</option>
-          </select>
-        </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" id="dig-run" onclick="runDig()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            Lookup
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Output</span>
-        <div class="out-controls">
-          <span class="status"><span class="dot" id="dig-dot"></span><span id="dig-stxt">Ready</span></span>
-        </div>
-      </div>
-      <pre class="terminal" id="dig-out"><span class="ph">Enter a domain and press Lookup</span></pre>
-    </div>
-  </div>
-  <!-- PORT CHECK -->
-  <div class="panel" id="panel-port">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg">
-          <label>Target</label>
-          <input type="text" id="port-target" placeholder="example.ir or 1.2.3.4" autocomplete="off" autocorrect="off" spellcheck="false"/>
-        </div>
-        <div class="fg narrow">
-          <label>Port</label>
-          <input type="text" id="port-port" placeholder="443" autocomplete="off" spellcheck="false" style="width:90px"/>
-        </div>
-        <div class="fg narrow">
-          <label>Source Node</label>
-          <select id="port-node"></select>
-        </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" onclick="runPort()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            Check
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Result</span>
-        <span class="status"><span class="dot" id="port-dot"></span><span id="port-stxt">Ready</span></span>
-      </div>
-      <div class="bgp-out" id="port-out"><span class="ph">Enter a target and port, then press Check</span></div>
-    </div>
-  </div>
-  <!-- SSL -->
-  <div class="panel" id="panel-ssl">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg">
-          <label>Domain or Host</label>
-          <input type="text" id="ssl-target" placeholder="parspack.com or example.ir:8443" autocomplete="off" autocorrect="off" spellcheck="false"/>
-        </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" onclick="runSSL()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            Check
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Result</span>
-        <span class="status"><span class="dot" id="ssl-dot"></span><span id="ssl-stxt">Ready</span></span>
-      </div>
-      <div class="bgp-out" id="ssl-out"><span class="ph">Enter a domain and press Check</span></div>
-    </div>
-  </div>
 
-  <!-- BGP -->
-  <div class="panel" id="panel-bgp">
-    <div class="card">
-      <div class="form-row">
-        <div class="fg narrow">
-          <label>Lookup Type</label>
-          <select id="bgp-type" onchange="bgpTypeChanged()">
-            <option value="ip">IP Address</option>
-            <option value="prefix">Prefix (CIDR)</option>
-            <option value="asn">AS Number</option>
-          </select>
+        <!-- BGP -->
+        <div class="panel" id="panel-bgp">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg narrow">
+                        <label>Lookup Type</label>
+                        <select id="bgp-type" onchange="bgpTypeChanged()">
+                            <option value="ip">IP Address</option>
+                            <option value="prefix">Prefix (CIDR)</option>
+                            <option value="asn">AS Number</option>
+                        </select>
+                    </div>
+                    <div class="fg">
+                        <label>Query</label>
+                        <input type="text" id="bgp-query" placeholder="e.g. 1.2.3.4" autocomplete="off"
+                            autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" onclick="runBGP()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5">
+                                <circle cx="11" cy="11" r="8" />
+                                <path d="m21 21-4.35-4.35" />
+                            </svg>
+                            Lookup
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Routes</span>
+                    <span class="status"><span class="dot" id="bgp-dot"></span><span id="bgp-stxt">Ready</span></span>
+                    <button onclick="copyShareLink(this)" class="btn"
+                        style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                        Link</button>
+                </div>
+                <div class="bgp-out" id="bgp-out"><span class="ph">Select lookup type and enter a query</span></div>
+            </div>
         </div>
-        <div class="fg">
-          <label>Query</label>
-          <input type="text" id="bgp-query" placeholder="e.g. 1.2.3.4" autocomplete="off" autocorrect="off" spellcheck="false"/>
-        </div>
-        <div class="fg narrow">
-          <label>&nbsp;</label>
-          <button class="btn btn-run" onclick="runBGP()">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            Lookup
-          </button>
-        </div>
-      </div>
-      <div class="out-header">
-        <span class="out-label">Routes</span>
-        <span class="status"><span class="dot" id="bgp-dot"></span><span id="bgp-stxt">Ready</span></span>
-      </div>
-      <div class="bgp-out" id="bgp-out"><span class="ph">Select lookup type and enter a query</span></div>
-    </div>
-  </div>
-</main>
+    </main>
 
-<footer>
-  Made with &hearts; by <a href="//komyl.ir" target="_blank" rel="noopener">Komeyl Kalhorinia</a>
-</footer>
+    <footer>
+        Made with &hearts; by <a href="//komyl.ir" target="_blank" rel="noopener">Komeyl Kalhorinia</a>
+    </footer>
 
-<script>
-'use strict';
-function switchTab(name){
-  ['ping','traceroute','dig','port','ssl','bgp'].forEach(n=>{
-    document.getElementById('tab-'+n).classList.toggle('active',n===name);
-    document.getElementById('panel-'+n).classList.toggle('active',n===name);
-  });
-  if(name==='traceroute'||name==='port')populateNodes();
-}
-function setStatus(id,state,text){document.getElementById(id+'-dot').className='dot'+(state?' '+state:'');document.getElementById(id+'-stxt').textContent=text}
-function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-const ipInfoCache={};
+    <script>
+        'use strict';
+        function switchTab(name) {
+            ['ping', 'traceroute', 'dig', 'port', 'ssl', 'bgp'].forEach(n => {
+                document.getElementById('tab-' + n).classList.toggle('active', n === name);
+                document.getElementById('panel-' + n).classList.toggle('active', n === name);
+            });
+            if (name === 'traceroute' || name === 'port') populateNodes();
+        }
+        function setStatus(id, state, text) { document.getElementById(id + '-dot').className = 'dot' + (state ? ' ' + state : ''); document.getElementById(id + '-stxt').textContent = text }
+        function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') }
+        const ipInfoCache = {};
+        const traceLines = [];
+        let traceFlushTimer = null;
+        function enrichTraceLine(line, out) {
+            traceLines.push(line);
+            if (traceFlushTimer) clearTimeout(traceFlushTimer);
+            traceFlushTimer = setTimeout(() => flushTraceLines(out), 150);
+        }
+        function flushTraceLines(out) {
+            const lines = [...traceLines];
+            traceLines.length = 0;
+            const ips = [...new Set(lines.flatMap(l => [...l.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)].map(m => m[1])))];
+            const unknown = ips.filter(ip => !(ip in ipInfoCache));
+            const render = () => { lines.forEach(l => { out.innerHTML += renderTraceLine(l) + '\n' }); out.scrollTop = out.scrollHeight };
+            if (!unknown.length) { render(); return }
+            fetch('/api/ip-info?targets=' + unknown.map(encodeURIComponent).join(','))
+                .then(r => r.json())
+                .then(data => { Object.assign(ipInfoCache, data); render() })
+                .catch(() => render());
+        }
+        function renderTraceLine(raw) {
+            let s = esc(raw);
+            if (/^(PING|traceroute to)/i.test(raw)) return `<span class="t-head">${s}</span>`;
+            if (/^\s*\d+\s+\*\s+\*/.test(raw)) return `<span class="t-star">${s}</span>`;
+            if (/unreachable|timed? ?out|failed|error|unknown host|bad address/i.test(raw)) return `<span class="t-err">${s}</span>`;
+            if (/packets transmitted|round-trip|rtt\s/i.test(raw)) return `<span class="t-ok">${s}</span>`;
+            s = s.replace(/(\d+(?:\.\d+)?)\s*(ms)/g, '<span class="t-time">$1 $2</span>');
+            s = s.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g, (match) => {
+                const info = ipInfoCache[match];
+                if (info && info.name) {
+                    return `<span class="t-ip">${match}</span><span style="color:var(--muted2);font-size:11px"> (${esc(info.asn)} ${esc(info.name)})</span>`;
+                }
+                return `<span class="t-ip">${match}</span>`;
+            });
+            return s;
+        }
+        function highlight(raw) {
+            return renderTraceLine(raw);
+        }
+        function highlightDig(raw) {
+            let s = esc(raw);
+            if (raw.startsWith(';')) return `<span class="t-star">${s}</span>`;
+            const m = raw.match(/^(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/);
+            if (m) {
+                return `<span class="t-dns-key">${esc(m[1])}</span> <span class="t-dns-ttl">${esc(m[2])}</span> ${esc(m[3])} <span class="t-dns-type">${esc(m[4])}</span> <span class="t-dns-val">${esc(m[5])}</span>`;
+            }
+            return s;
+        }
+        let cachedNodeOpts = '';
+        function populateNodes() {
+            if (cachedNodeOpts) {
+                const tr = document.getElementById('tr-node');
+                const port = document.getElementById('port-node');
+                if (tr && !tr.options.length) tr.innerHTML = cachedNodeOpts;
+                if (port && !port.options.length) port.innerHTML = cachedNodeOpts;
+                return;
+            }
+            fetch('/api/nodes')
+                .then(r => r.json())
+                .then(nodes => {
+                    cachedNodeOpts = nodes.map(n => `<option value="${n.id}">${n.name}</option>`).join('');
+                    const tr = document.getElementById('tr-node');
+                    const port = document.getElementById('port-node');
+                    if (tr) tr.innerHTML = cachedNodeOpts;
+                    if (port) port.innerHTML = cachedNodeOpts;
+                })
+                .catch(() => { });
+        }
+        fetch('/api/myip').then(r => r.json()).then(d => { document.getElementById('clientIP').textContent = d.ip || 'unknown' }).catch(() => { document.getElementById('clientIP').textContent = 'unknown' });
+        populateNodes();
+        fetch('/api/info').then(r => r.json()).then(d => { const m = document.getElementById('hdrMeta'); if (d.route_count > 0) { m.innerHTML = `BGP Routes&nbsp;<span>${d.route_count.toLocaleString()}</span>&nbsp;&nbsp;Updated&nbsp;<span>${esc(d.bgp_updated)}</span>` } else { m.innerHTML = 'BGP data <span>not loaded</span>' } }).catch(() => { });
 
-const traceLines=[];
-let traceFlushTimer=null;
-
-function enrichTraceLine(line,out){
-  traceLines.push(line);
-  if(traceFlushTimer)clearTimeout(traceFlushTimer);
-  traceFlushTimer=setTimeout(()=>flushTraceLines(out),150);
-}
-
-function flushTraceLines(out){
-  const lines=[...traceLines];
-  traceLines.length=0;
-  const ips=[...new Set(lines.flatMap(l=>[...l.matchAll(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g)].map(m=>m[1])))];
-  const unknown=ips.filter(ip=>!(ip in ipInfoCache));
-  const render=()=>{lines.forEach(l=>{out.innerHTML+=renderTraceLine(l)+'\n'});out.scrollTop=out.scrollHeight};
-  if(!unknown.length){render();return}
-  fetch('/api/ip-info?targets='+unknown.map(encodeURIComponent).join(','))
-    .then(r=>r.json())
-    .then(data=>{Object.assign(ipInfoCache,data);render()})
-    .catch(()=>render());
-}
-
-function renderTraceLine(raw){
-  let s=esc(raw);
-  if(/^(PING|traceroute to)/i.test(raw))return`<span class="t-head">${s}</span>`;
-  if(/^\s*\d+\s+\*\s+\*/.test(raw))return`<span class="t-star">${s}</span>`;
-  if(/unreachable|timed? ?out|failed|error|unknown host|bad address/i.test(raw))return`<span class="t-err">${s}</span>`;
-  if(/packets transmitted|round-trip|rtt\s/i.test(raw))return`<span class="t-ok">${s}</span>`;
-  s=s.replace(/(\d+(?:\.\d+)?)\s*(ms)/g,'<span class="t-time">$1 $2</span>');
-  s=s.replace(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/g,(match)=>{
-    const info=ipInfoCache[match];
-    if(info&&info.name){
-      return`<span class="t-ip">${match}</span><span style="color:var(--muted2);font-size:11px"> (${esc(info.asn)} ${esc(info.name)})</span>`;
-    }
-    return`<span class="t-ip">${match}</span>`;
-  });
-  return s;
-}
-
-function highlight(raw){
-  return renderTraceLine(raw);
-}
-function highlightDig(raw){
-  let s=esc(raw);
-  if(raw.startsWith(';'))return`<span class="t-star">${s}</span>`;
-  // answer line: name TTL class type value
-  const m=raw.match(/^(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(.+)$/);
-  if(m){
-    return`<span class="t-dns-key">${esc(m[1])}</span> <span class="t-dns-ttl">${esc(m[2])}</span> ${esc(m[3])} <span class="t-dns-type">${esc(m[4])}</span> <span class="t-dns-val">${esc(m[5])}</span>`;
-  }
-  return s;
-}
-let cachedNodeOpts='';
-function populateNodes(){
-  if(cachedNodeOpts){
-    const tr=document.getElementById('tr-node');
-    const port=document.getElementById('port-node');
-    if(tr&&!tr.options.length)tr.innerHTML=cachedNodeOpts;
-    if(port&&!port.options.length)port.innerHTML=cachedNodeOpts;
-    return;
-  }
-  fetch('/api/nodes')
-    .then(r=>r.json())
-    .then(nodes=>{
-      cachedNodeOpts=nodes.map(n=>`<option value="${n.id}">${n.name}</option>`).join('');
-      const tr=document.getElementById('tr-node');
-      const port=document.getElementById('port-node');
-      if(tr)tr.innerHTML=cachedNodeOpts;
-      if(port)port.innerHTML=cachedNodeOpts;
-    })
-    .catch(()=>{});
-}
-fetch('/api/myip').then(r=>r.json()).then(d=>{document.getElementById('clientIP').textContent=d.ip||'unknown'}).catch(()=>{document.getElementById('clientIP').textContent='unknown'});
-populateNodes();
-fetch('/api/info').then(r=>r.json()).then(d=>{const m=document.getElementById('hdrMeta');if(d.route_count>0){m.innerHTML=`BGP Routes&nbsp;<span>${d.route_count.toLocaleString()}</span>&nbsp;&nbsp;Updated&nbsp;<span>${esc(d.bgp_updated)}</span>`}else{m.innerHTML='BGP data <span>not loaded</span>'}}).catch(()=>{});
-
-let pingES=null;
-function runPingAll(){
-  let target=document.getElementById('ping-target').value.trim();
-if(!target)return;
-target=target.replace(/^https?:\/\//i,'').replace(/\/.*$/,'');
-document.getElementById('ping-target').value=target;
-  const out=document.getElementById('ping-out');
-  setStatus('ping','run','Running...');
-  document.getElementById('ping-run').disabled=true;
-
-  // build skeleton table
-  out.innerHTML=`<table style="width:100%;border-collapse:collapse;font-size:13px">
+        let pingES = null;
+        function runPingAll() {
+            let target = document.getElementById('ping-target').value.trim();
+            if (!target) return;
+            target = target.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+            document.getElementById('ping-target').value = target;
+            const out = document.getElementById('ping-out');
+            setStatus('ping', 'run', 'Running...');
+            document.getElementById('ping-run').disabled = true;
+            out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
 <thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
 <th style="text-align:left;padding:8px 10px">Node</th>
 <th style="text-align:left;padding:8px 10px">ISP</th>
@@ -530,11 +1079,10 @@ document.getElementById('ping-target').value=target;
 </tr></thead>
 <tbody id="ping-tbody"></tbody>
 </table>`;
-
-  fetch('/api/nodes').then(r=>r.json()).then(ns=>{
-    const tbody=document.getElementById('ping-tbody');
-    ns.forEach(n=>{
-      tbody.innerHTML+=`<tr id="ping-row-${n.id}" style="border-bottom:1px solid var(--bdr2)">
+            fetch('/api/nodes').then(r => r.json()).then(ns => {
+                const tbody = document.getElementById('ping-tbody');
+                ns.forEach(n => {
+                    tbody.innerHTML += `<tr id="ping-row-${n.id}" style="border-bottom:1px solid var(--bdr2)">
 <td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(n.name)}</td>
 <td style="padding:10px 10px;color:var(--muted2);font-size:12px">${esc(n.isp)}</td>
 <td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
@@ -542,248 +1090,398 @@ document.getElementById('ping-target').value=target;
 <td style="padding:10px 10px;text-align:right;font-family:var(--mono)">—</td>
 <td style="padding:10px 10px;text-align:center"><span class="spin"></span></td>
 </tr>`;
-    });
-  });
+                });
+            });
+            fetch('/api/ping-all?target=' + encodeURIComponent(target))
+                .then(r => r.json())
+                .then(data => {
+                    (data.results || []).forEach(r => {
+                        const row = document.getElementById('ping-row-' + r.id);
+                        if (!row) return;
+                        const cells = row.querySelectorAll('td');
+                        const statusColor = r.status === 'ok' ? 'var(--green)' : r.status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+                        const statusText = r.status === 'ok' ? 'OK' : r.status === 'degraded' ? 'Degraded' : r.status === 'down' ? 'Down' : 'Error';
+                        const lossColor = r.loss === 0 ? 'var(--green)' : r.loss < 50 ? 'var(--yellow)' : 'var(--red)';
+                        cells[2].textContent = r.error ? '—' : `${r.sent} / ${r.received}`;
+                        cells[3].innerHTML = r.error ? '—' : `<span style="color:${lossColor}">${r.loss}%</span>`;
+                        cells[4].textContent = r.error ? r.error : `${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`;
+                        cells[5].innerHTML = `<span style="color:${statusColor};font-weight:700;font-size:12px">${statusText}</span>`;
+                    });
+                    setStatus('ping', 'ok', 'Done');
+                    document.getElementById('ping-run').disabled = false;
+                })
+                .catch(err => {
+                    setStatus('ping', 'err', 'Error');
+                    document.getElementById('ping-out').innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>`;
+                    document.getElementById('ping-run').disabled = false;
+                });
+        }
 
-  fetch('/api/ping-all?target='+encodeURIComponent(target))
-    .then(r=>r.json())
-    .then(data=>{
-      (data.results||[]).forEach(r=>{
-        const row=document.getElementById('ping-row-'+r.id);
-        if(!row)return;
-        const cells=row.querySelectorAll('td');
-        const statusColor=r.status==='ok'?'var(--green)':r.status==='degraded'?'var(--yellow)':'var(--red)';
-        const statusText=r.status==='ok'?'OK':r.status==='degraded'?'Degraded':r.status==='down'?'Down':'Error';
-        const lossColor=r.loss===0?'var(--green)':r.loss<50?'var(--yellow)':'var(--red)';
-        cells[2].textContent=r.error?'—':`${r.sent} / ${r.received}`;
-        cells[3].innerHTML=r.error?'—':`<span style="color:${lossColor}">${r.loss}%</span>`;
-        cells[4].textContent=r.error?r.error:`${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`;
-        cells[5].innerHTML=`<span style="color:${statusColor};font-weight:700;font-size:12px">${statusText}</span>`;
-      });
-      setStatus('ping','ok','Done');
-      document.getElementById('ping-run').disabled=false;
-    })
-    .catch(err=>{
-      setStatus('ping','err','Error');
-      document.getElementById('ping-out').innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`;
-      document.getElementById('ping-run').disabled=false;
-    });
-}
+        let trES = null;
+        function runTrace() {
+            const target = document.getElementById('tr-target').value.trim();
+            if (!target) return;
+            const maxhops = document.getElementById('tr-hops').value;
+            const out = document.getElementById('tr-out');
+            stopTrace(); out.innerHTML = ''; setStatus('tr', 'run', 'Running...');
+            document.getElementById('tr-run').disabled = true;
+            document.getElementById('tr-stop').classList.remove('hidden');
+            const trNode = document.getElementById('tr-node').value;
+            const trURL = trNode
+                ? '/api/proxy?node=' + trNode + '&action=traceroute&target=' + encodeURIComponent(target) + '&maxhops=' + maxhops
+                : '/api/traceroute?target=' + encodeURIComponent(target) + '&maxhops=' + maxhops;
+            trES = new EventSource(trURL);
+            trES.onmessage = e => {
+                if (e.data === '[DONE]') { stopTrace('ok'); return }
+                if (e.data.startsWith('[ERROR]')) { out.innerHTML += `<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`; stopTrace('err'); return }
+                if (e.data.trim()) enrichTraceLine(e.data, out);
+            };
+            trES.onerror = () => { if (trES && trES.readyState === 2) stopTrace('err') };
+        }
+        function stopTrace(state) {
+            if (trES) { trES.close(); trES = null }
+            document.getElementById('tr-run').disabled = false;
+            document.getElementById('tr-stop').classList.add('hidden');
+            if (state === 'ok') setStatus('tr', 'ok', 'Done');
+            else if (state === 'err') setStatus('tr', 'err', 'Error');
+            else setStatus('tr', '', 'Ready');
+        }
 
-let trES=null;
-function runTrace(){
-  const target=document.getElementById('tr-target').value.trim();
-  if(!target)return;
-  const maxhops=document.getElementById('tr-hops').value;
-  const out=document.getElementById('tr-out');
-  stopTrace();out.innerHTML='';setStatus('tr','run','Running...');
-  document.getElementById('tr-run').disabled=true;
-  document.getElementById('tr-stop').classList.remove('hidden');
-  const trNode=document.getElementById('tr-node').value;
-  const trURL=trNode
-    ? '/api/proxy?node='+trNode+'&action=traceroute&target='+encodeURIComponent(target)+'&maxhops='+maxhops
-    : '/api/traceroute?target='+encodeURIComponent(target)+'&maxhops='+maxhops;
-  trES=new EventSource(trURL);
-  trES.onmessage=e=>{
-    if(e.data==='[DONE]'){stopTrace('ok');return}
-    if(e.data.startsWith('[ERROR]')){out.innerHTML+=`<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`;stopTrace('err');return}
-     if(e.data.trim())enrichTraceLine(e.data,out);
-  };
-  trES.onerror=()=>{if(trES&&trES.readyState===2)stopTrace('err')};
-}
-function stopTrace(state){
-  if(trES){trES.close();trES=null}
-  document.getElementById('tr-run').disabled=false;
-  document.getElementById('tr-stop').classList.add('hidden');
-  if(state==='ok')setStatus('tr','ok','Done');
-  else if(state==='err')setStatus('tr','err','Error');
-  else setStatus('tr','','Ready');
-}
+        let digES = null;
+        let digLines = [];
+        function runDig() {
+            const target = document.getElementById('dig-target').value.trim();
+            if (!target) return;
+            const qtype = document.getElementById('dig-qtype').value;
+            const out = document.getElementById('dig-out');
+            if (digES) { digES.close(); digES = null; }
+            digLines = [];
+            out.innerHTML = '';
+            setStatus('dig', 'run', 'Looking up...');
+            document.getElementById('dig-run').disabled = true;
+            digES = new EventSource('/api/dig?target=' + encodeURIComponent(target) + '&qtype=' + qtype);
+            digES.onmessage = e => {
+                if (e.data === '[DONE]') {
+                    if (digES) { digES.close(); digES = null; }
+                    document.getElementById('dig-run').disabled = false;
+                    setStatus('dig', 'ok', 'Done');
+                    renderDNS(out, target, qtype);
+                    return;
+                }
+                if (e.data.startsWith('[ERROR]')) {
+                    out.innerHTML = `<span class="t-err">${esc(e.data.slice(7).trim())}</span>`;
+                    if (digES) { digES.close(); digES = null; }
+                    document.getElementById('dig-run').disabled = false;
+                    setStatus('dig', 'err', 'Error');
+                    return;
+                }
+                if (e.data.trim()) digLines.push(e.data);
+            };
+            digES.onerror = () => {
+                if (digES && digES.readyState === 2) {
+                    if (digES) { digES.close(); digES = null; }
+                    document.getElementById('dig-run').disabled = false;
+                    setStatus('dig', 'err', 'Error');
+                }
+            };
+        }
 
-let digES=null;
-function runDig(){
-  const target=document.getElementById('dig-target').value.trim();
-  if(!target)return;
-  const qtype=document.getElementById('dig-qtype').value;
-  const out=document.getElementById('dig-out');
-  if(digES){digES.close();digES=null}
-  out.innerHTML='';setStatus('dig','run','Looking up...');
-  document.getElementById('dig-run').disabled=true;
-  digES=new EventSource('/api/dig?target='+encodeURIComponent(target)+'&qtype='+qtype);
-  digES.onmessage=e=>{
-    if(e.data==='[DONE]'){
-      if(digES){digES.close();digES=null}
-      document.getElementById('dig-run').disabled=false;
-      setStatus('dig','ok','Done');
-      return;
-    }
-    if(e.data.startsWith('[ERROR]')){
-      out.innerHTML+=`<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`;
-      if(digES){digES.close();digES=null}
-      document.getElementById('dig-run').disabled=false;
-      setStatus('dig','err','Error');
-      return;
-    }
-    if(e.data.trim()==='')return;
-    out.innerHTML+=highlightDig(e.data)+'\n';
-    out.scrollTop=out.scrollHeight;
-  };
-  digES.onerror=()=>{
-    if(digES&&digES.readyState===2){
-      if(digES){digES.close();digES=null}
-      document.getElementById('dig-run').disabled=false;
-      setStatus('dig','err','Error');
-    }
-  };
-}
+        function renderDNS(out, target, qtype) {
+            out.innerHTML = '';
+            if (digLines.length === 0) {
+                out.innerHTML = '<span class="ph">No records found</span>';
+                return;
+            }
+            const records = [];
+            let summaryLine = '';
+            digLines.forEach(line => {
+                if (line.includes('=== Summary ===')) return;
+                if (line.startsWith('Record found on')) {
+                    summaryLine = line;
+                    return;
+                }
+                if (line.includes(' IN ') && line.includes('(found on')) {
+                    records.push(line);
+                }
+            });
+            if (records.length === 0) {
+                out.innerHTML = `<div class="rcard"><div class="rprefix">No ${esc(qtype)} record found</div></div>`;
+                return;
+            }
+            let html = `<div class="rcard">`;
+            html += `<div class="rprefix">${esc(target)} — ${esc(qtype)} Records</div>`;
+            html += `<div class="rattrs">`;
+            records.forEach(rec => {
+                const match = rec.match(/^(.*)\s+\(found on (\d+) resolvers\)$/);
+                if (match) {
+                    const recordValue = match[1].trim();
+                    const count = match[2];
+                    html += `
+        <div class="rattr wide">
+          <div class="rattr-k">Record</div>
+          <div class="rattr-v" style="font-family:var(--mono);color:var(--accent)">${esc(recordValue)}</div>
+          <div style="margin-top:4px">
+            <span class="asn-tag" style="background:var(--blue-dim);border-color:rgba(77,159,255,.3);color:var(--blue)">${count} resolver${count > 1 ? 's' : ''}</span>
+          </div>
+        </div>`;
+                }
+            });
+            if (summaryLine) {
+                html += `
+      <div class="rattr wide" style="margin-top:8px;border-top:1px solid var(--bdr);padding-top:8px">
+        <div class="rattr-k">Summary</div>
+        <div class="rattr-v" style="color:var(--green);font-weight:600">${esc(summaryLine)}</div>
+      </div>`;
+            }
+            html += `</div></div>`;
+            out.innerHTML = html;
+        }
 
-const BGP_PH={ip:'e.g. 1.2.3.4',prefix:'e.g. 1.0.0.0/8',asn:'e.g. 12880 or AS12880'};
-function bgpTypeChanged(){document.getElementById('bgp-query').placeholder=BGP_PH[document.getElementById('bgp-type').value]||''}
-function runBGP(){
-  const type=document.getElementById('bgp-type').value;
-  const query=document.getElementById('bgp-query').value.trim();
-  if(!query)return;
-  const out=document.getElementById('bgp-out');
-  out.innerHTML='<span class="ph"><span class="spin"></span>&nbsp;Searching...</span>';
-  setStatus('bgp','run','Searching...');
-  fetch('/api/bgp?type='+encodeURIComponent(type)+'&query='+encodeURIComponent(query))
-    .then(r=>r.json())
-    .then(data=>{
-      if(data.error){setStatus('bgp','err','Error');out.innerHTML=`<span class="t-err">${esc(data.error)}</span>`;return}
-      const cnt=data.count||0;
-      setStatus('bgp','ok',cnt===0?'No routes found':cnt+' route'+(cnt>1?'s':'')+' found');
-      renderBGP(data,type);
-    })
-    .catch(err=>{setStatus('bgp','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
-}
-function originClass(o){if(!o)return'';const c=o.toLowerCase();if(c==='igp'||c==='i')return'origin-i';if(c==='egp'||c==='e')return'origin-e';return'origin-q'}
-function renderBGP(data,type){
-  const out=document.getElementById('bgp-out');
-  const routes=data.routes||[];
-  const aspEnriched=data.aspath_enriched||[];
-  if(!routes.length){out.innerHTML='<span class="ph">No routes found</span>';return}
-  const max=type==='asn'?50:routes.length;
-  let html='';
-  if(routes.length>max)html+=`<div class="notice">Showing ${max} of ${routes.length} routes</div>`;
-  for(let i=0;i<Math.min(routes.length,max);i++){
-    const r=routes[i];
-    const orig=r.origin?`<span class="${originClass(r.origin)}">${esc(r.origin)}</span>`:'<span style="color:var(--muted)">-</span>';
-
-    // AS Path with arrows and names
-    let aspHtml='<span style="color:var(--muted)">-</span>';
-    if((r.aspath||[]).length){
-      const enrichMap={};
-      aspEnriched.forEach(a=>enrichMap[a.asn]=a);
-      aspHtml=(r.aspath||[]).map((asn,idx)=>{
-        const info=enrichMap[asn]||{};
-        const name=info.name?`<span style="color:var(--muted2);font-size:10px;margin-left:3px">${esc(info.name)}</span>`:'';
-        const arrow=idx<(r.aspath||[]).length-1?`<span style="color:var(--bdr2);margin:0 4px">→</span>`:'';
-        return `<span class="asn-tag">AS${asn}</span>${name}${arrow}`;
-      }).join('');
-    }
-
-    const comm=(r.communities||[]).length?(r.communities||[]).map(c=>`<span class="comm-tag">${esc(c)}</span>`).join(' '):'<span style="color:var(--muted)">-</span>';
-
-    // GeoIP block
-    let geoHtml='';
-    if(r.geo){
-      const g=r.geo;
-      const flag=g.country_code?getFlagEmoji(g.country_code):'';
-      const parts=[];
-      if(g.country)parts.push(`${flag} ${esc(g.country)}`);
-      if(g.continent)parts.push(esc(g.continent));
-      if(g.as_name)parts.push(`<span style="color:var(--purple)">${esc(g.as_name)}</span>`);
-      if(g.as_domain)parts.push(`<span style="color:var(--muted2);font-size:11px">${esc(g.as_domain)}</span>`);
-      if(parts.length){
-        geoHtml=`<div class="rattr wide"><div class="rattr-k">Location</div><div class="rattr-v">${parts.join(' · ')}</div></div>`;
-      }
-    }
-
-    html+=`<div class="rcard"><div class="rprefix">${esc(r.prefix)}</div><div class="rattrs">
+        const BGP_PH = { ip: 'e.g. 1.2.3.4', prefix: 'e.g. 1.0.0.0/8', asn: 'e.g. 12880 or AS12880' };
+        function bgpTypeChanged() { document.getElementById('bgp-query').placeholder = BGP_PH[document.getElementById('bgp-type').value] || '' }
+        function runBGP() {
+            const type = document.getElementById('bgp-type').value;
+            const query = document.getElementById('bgp-query').value.trim();
+            if (!query) return;
+            const out = document.getElementById('bgp-out');
+            out.innerHTML = '<span class="ph"><span class="spin"></span>&nbsp;Searching...</span>';
+            setStatus('bgp', 'run', 'Searching...');
+            fetch('/api/bgp?type=' + encodeURIComponent(type) + '&query=' + encodeURIComponent(query))
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) { setStatus('bgp', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(data.error)}</span>`; return }
+                    const cnt = data.count || 0;
+                    setStatus('bgp', 'ok', cnt === 0 ? 'No routes found' : cnt + ' route' + (cnt > 1 ? 's' : '') + ' found');
+                    renderBGP(data, type);
+                })
+                .catch(err => { setStatus('bgp', 'err', 'Error'); out.innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>` });
+        }
+        function originClass(o) { if (!o) return ''; const c = o.toLowerCase(); if (c === 'igp' || c === 'i') return 'origin-i'; if (c === 'egp' || c === 'e') return 'origin-e'; return 'origin-q' }
+        function renderBGP(data, type) {
+            const out = document.getElementById('bgp-out');
+            const routes = data.routes || [];
+            const aspEnriched = data.aspath_enriched || [];
+            if (!routes.length) { out.innerHTML = '<span class="ph">No routes found</span>'; return }
+            const max = type === 'asn' ? 50 : routes.length;
+            let html = '';
+            if (routes.length > max) html += `<div class="notice">Showing ${max} of ${routes.length} routes</div>`;
+            for (let i = 0; i < Math.min(routes.length, max); i++) {
+                const r = routes[i];
+                const orig = r.origin ? `<span class="${originClass(r.origin)}">${esc(r.origin)}</span>` : '<span style="color:var(--muted)">-</span>';
+                let aspHtml = '<span style="color:var(--muted)">-</span>';
+                if ((r.aspath || []).length) {
+                    const enrichMap = {};
+                    aspEnriched.forEach(a => enrichMap[a.asn] = a);
+                    aspHtml = (r.aspath || []).map((asn, idx) => {
+                        const info = enrichMap[asn] || {};
+                        const name = info.name ? `<span style="color:var(--muted2);font-size:10px;margin-left:3px">${esc(info.name)}</span>` : '';
+                        const arrow = idx < (r.aspath || []).length - 1 ? `<span style="color:var(--bdr2);margin:0 4px">→</span>` : '';
+                        return `<span class="asn-tag">AS${asn}</span>${name}${arrow}`;
+                    }).join('');
+                }
+                const comm = (r.communities || []).length ? (r.communities || []).map(c => `<span class="comm-tag">${esc(c)}</span>`).join(' ') : '<span style="color:var(--muted)">-</span>';
+                let geoHtml = '';
+                if (r.geo) {
+                    const g = r.geo;
+                    const flag = g.country_code ? getFlagEmoji(g.country_code) : '';
+                    const parts = [];
+                    if (g.country) parts.push(`${flag} ${esc(g.country)}`);
+                    if (g.continent) parts.push(esc(g.continent));
+                    if (g.as_name) parts.push(`<span style="color:var(--purple)">${esc(g.as_name)}</span>`);
+                    if (g.as_domain) parts.push(`<span style="color:var(--muted2);font-size:11px">${esc(g.as_domain)}</span>`);
+                    if (parts.length) {
+                        geoHtml = `<div class="rattr wide"><div class="rattr-k">Location</div><div class="rattr-v">${parts.join(' · ')}</div></div>`;
+                    }
+                }
+                html += `<div class="rcard"><div class="rprefix">${esc(r.prefix)}</div><div class="rattrs">
 ${geoHtml}
 <div class="rattr"><div class="rattr-k">Origin</div><div class="rattr-v">${orig}</div></div>
-<div class="rattr"><div class="rattr-k">Local Pref</div><div class="rattr-v">${r.localpref!=null?r.localpref:'-'}</div></div>
-<div class="rattr"><div class="rattr-k">MED</div><div class="rattr-v">${r.med!=null?r.med:'-'}</div></div>
+<div class="rattr"><div class="rattr-k">Local Pref</div><div class="rattr-v">${r.localpref != null ? r.localpref : '-'}</div></div>
+<div class="rattr"><div class="rattr-k">MED</div><div class="rattr-v">${r.med != null ? r.med : '-'}</div></div>
 <div class="rattr wide"><div class="rattr-k">AS Path</div><div class="rattr-v" style="line-height:2">${aspHtml}</div></div>
 <div class="rattr wide"><div class="rattr-k">Communities</div><div class="rattr-v">${comm}</div></div>
 </div></div>`;
-  }
-  out.innerHTML=html;
-}
+            }
+            out.innerHTML = html;
+        }
+        function getFlagEmoji(code) {
+            if (!code || code.length !== 2) return '';
+            const o = 127397;
+            return String.fromCodePoint(code.charCodeAt(0) + o) + String.fromCodePoint(code.charCodeAt(1) + o);
+        }
+        document.getElementById('ping-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPing() });
+        document.getElementById('tr-target').addEventListener('keydown', e => { if (e.key === 'Enter') runTrace() });
+        document.getElementById('dig-target').addEventListener('keydown', e => { if (e.key === 'Enter') runDig() });
+        document.getElementById('bgp-query').addEventListener('keydown', e => { if (e.key === 'Enter') runBGP() });
 
-function getFlagEmoji(code){
-  if(!code||code.length!==2)return'';
-  const o=127397;
-  return String.fromCodePoint(code.charCodeAt(0)+o)+String.fromCodePoint(code.charCodeAt(1)+o);
-}
-document.getElementById('ping-target').addEventListener('keydown',e=>{if(e.key==='Enter')runPing()});
-document.getElementById('tr-target').addEventListener('keydown',e=>{if(e.key==='Enter')runTrace()});
-document.getElementById('dig-target').addEventListener('keydown',e=>{if(e.key==='Enter')runDig()});
-document.getElementById('bgp-query').addEventListener('keydown',e=>{if(e.key==='Enter')runBGP()});
-
-
-
-function runSSL(){
-  const target=document.getElementById('ssl-target').value.trim();
-  if(!target)return;
-  const out=document.getElementById('ssl-out');
-  out.innerHTML='<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
-  setStatus('ssl','run','Checking...');
-  fetch('/api/ssl?target='+encodeURIComponent(target))
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.error&&!d.subject){setStatus('ssl','err','Error');out.innerHTML=`<span class="t-err">${esc(d.error)}</span>`;return}
-      const valid=d.valid;
-      setStatus('ssl',valid?'ok':'err',valid?'Valid':'Invalid');
-      const badge=valid?`<span style="color:var(--green);font-weight:700">Valid</span>`:`<span style="color:var(--red);font-weight:700">Invalid</span>`;
-      const warn=d.error?`<div class="rattr wide"><div class="rattr-k">Warning</div><div class="rattr-v" style="color:var(--red)">${esc(d.error)}</div></div>`:'';
-      const daysColor=d.days_left<30?'var(--red)':d.days_left<60?'var(--yellow)':'var(--green)';
-      const sans=(d.sans||[]).map(s=>`<span class="comm-tag">${esc(s)}</span>`).join(' ')||'-';
-      out.innerHTML=`<div class="rcard">
+        function runSSL() {
+            const target = document.getElementById('ssl-target').value.trim();
+            if (!target) return;
+            const out = document.getElementById('ssl-out');
+            out.innerHTML = '<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
+            setStatus('ssl', 'run', 'Checking...');
+            fetch('/api/ssl?target=' + encodeURIComponent(target))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error && !d.subject) { setStatus('ssl', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(d.error)}</span>`; return }
+                    const valid = d.valid;
+                    setStatus('ssl', valid ? 'ok' : 'err', valid ? 'Valid' : 'Invalid');
+                    const badge = valid ? `<span style="color:var(--green);font-weight:700">Valid</span>` : `<span style="color:var(--red);font-weight:700">Invalid</span>`;
+                    const warn = d.error ? `<div class="rattr wide"><div class="rattr-k">Warning</div><div class="rattr-v" style="color:var(--red)">${esc(d.error)}</div></div>` : '';
+                    const daysColor = d.days_left < 30 ? 'var(--red)' : d.days_left < 60 ? 'var(--yellow)' : 'var(--green)';
+                    const sans = (d.sans || []).map(s => `<span class="comm-tag">${esc(s)}</span>`).join(' ') || '-';
+                    out.innerHTML = `<div class="rcard">
 <div class="rprefix">${badge} &nbsp;${esc(target)}</div>
 <div class="rattrs">
 ${warn}
-<div class="rattr"><div class="rattr-k">Subject</div><div class="rattr-v">${esc(d.subject||'-')}</div></div>
-<div class="rattr"><div class="rattr-k">Issuer</div><div class="rattr-v">${esc(d.issuer||'-')}</div></div>
-<div class="rattr"><div class="rattr-k">Not Before</div><div class="rattr-v">${esc(d.not_before||'-')}</div></div>
-<div class="rattr"><div class="rattr-k">Not After</div><div class="rattr-v">${esc(d.not_after||'-')}</div></div>
-<div class="rattr"><div class="rattr-k">Days Left</div><div class="rattr-v" style="color:${daysColor};font-weight:700">${d.days_left??'-'}</div></div>
+<div class="rattr"><div class="rattr-k">Subject</div><div class="rattr-v">${esc(d.subject || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Issuer</div><div class="rattr-v">${esc(d.issuer || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Not Before</div><div class="rattr-v">${esc(d.not_before || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Not After</div><div class="rattr-v">${esc(d.not_after || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Days Left</div><div class="rattr-v" style="color:${daysColor};font-weight:700">${d.days_left ?? '-'}</div></div>
 <div class="rattr wide"><div class="rattr-k">SANs</div><div class="rattr-v">${sans}</div></div>
 </div></div>`;
-    })
-    .catch(err=>{setStatus('ssl','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
-}
-document.getElementById('ssl-target').addEventListener('keydown',e=>{if(e.key==='Enter')runSSL()});
-function runPort(){
-  const target=document.getElementById('port-target').value.trim();
-  const port=document.getElementById('port-port').value.trim();
-  const node=document.getElementById('port-node').value;
-  if(!target||!port)return;
-  const out=document.getElementById('port-out');
-  out.innerHTML='<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
-  setStatus('port','run','Checking...');
-  fetch('/api/portcheck?node='+encodeURIComponent(node)+'&target='+encodeURIComponent(target)+'&port='+encodeURIComponent(port))
-    .then(r=>r.json())
-    .then(d=>{
-      if(d.error&&!d.status){setStatus('port','err','Error');out.innerHTML=`<span class="t-err">${esc(d.error)}</span>`;return}
-      const color=d.status==='open'?'var(--green)':d.status==='closed'?'var(--red)':'var(--yellow)';
-      const badge=`<span style="color:${color};font-weight:700;font-size:16px;text-transform:uppercase">${esc(d.status)}</span>`;
-      const latency=d.latency_ms!=null?`<div class="rattr"><div class="rattr-k">Latency</div><div class="rattr-v" style="color:var(--green)">${d.latency_ms} ms</div></div>`:'';
-      const errRow=d.error?`<div class="rattr wide"><div class="rattr-k">Detail</div><div class="rattr-v" style="color:var(--muted2)">${esc(d.error)}</div></div>`:'';
-      setStatus('port',d.status==='open'?'ok':'err',d.status);
-      out.innerHTML=`<div class="rcard">
+                })
+                .catch(err => { setStatus('ssl', 'err', 'Error'); out.innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>` });
+        }
+        document.getElementById('ssl-target').addEventListener('keydown', e => { if (e.key === 'Enter') runSSL() });
+
+        function runPort() {
+            const target = document.getElementById('port-target').value.trim();
+            const port = document.getElementById('port-port').value.trim();
+            const node = document.getElementById('port-node').value;
+            if (!target || !port) return;
+            const out = document.getElementById('port-out');
+            out.innerHTML = '<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
+            setStatus('port', 'run', 'Checking...');
+            fetch('/api/portcheck?node=' + encodeURIComponent(node) + '&target=' + encodeURIComponent(target) + '&port=' + encodeURIComponent(port))
+                .then(r => r.json())
+                .then(d => {
+                    if (d.error && !d.status) { setStatus('port', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(d.error)}</span>`; return }
+                    const color = d.status === 'open' ? 'var(--green)' : d.status === 'closed' ? 'var(--red)' : 'var(--yellow)';
+                    const badge = `<span style="color:${color};font-weight:700;font-size:16px;text-transform:uppercase">${esc(d.status)}</span>`;
+                    const latency = d.latency_ms != null ? `<div class="rattr"><div class="rattr-k">Latency</div><div class="rattr-v" style="color:var(--green)">${d.latency_ms} ms</div></div>` : '';
+                    const errRow = d.error ? `<div class="rattr wide"><div class="rattr-k">Detail</div><div class="rattr-v" style="color:var(--muted2)">${esc(d.error)}</div></div>` : '';
+                    setStatus('port', d.status === 'open' ? 'ok' : 'err', d.status);
+                    out.innerHTML = `<div class="rcard">
 <div class="rprefix">${badge}</div>
 <div class="rattrs">
 <div class="rattr"><div class="rattr-k">Target</div><div class="rattr-v">${esc(d.target)}</div></div>
 <div class="rattr"><div class="rattr-k">Port</div><div class="rattr-v">${esc(String(d.port))}</div></div>
 ${latency}${errRow}
 </div></div>`;
-    })
-    .catch(err=>{setStatus('port','err','Error');out.innerHTML=`<span class="t-err">Request failed: ${esc(err.message)}</span>`});
-}
-document.getElementById('port-target').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
-document.getElementById('port-port').addEventListener('keydown',e=>{if(e.key==='Enter')runPort()});
+                })
+                .catch(err => { setStatus('port', 'err', 'Error'); out.innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>` });
+        }
+        document.getElementById('port-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
+        document.getElementById('port-port').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
 
-</script>
+        function copyShareLink(btn) {
+            const activeTab = document.querySelector('.tab.active');
+            if (!activeTab) return;
+            const tabName = activeTab.id.replace('tab-', '');
+            const url = new URL(location.href);
+            url.searchParams.set('tab', tabName);
+            url.searchParams.set('run', '1');
+            let target = '';
+            if (tabName === 'dig') {
+                target = document.getElementById('dig-target').value.trim();
+                const qtype = document.getElementById('dig-qtype').value;
+                if (target) {
+                    url.searchParams.set('t', target);
+                    url.searchParams.set('q', qtype);
+                }
+            }
+            else if (tabName === 'ssl') {
+                target = document.getElementById('ssl-target').value.trim();
+                if (target) url.searchParams.set('t', target);
+            }
+            else if (tabName === 'ping') {
+                target = document.getElementById('ping-target').value.trim();
+                if (target) url.searchParams.set('t', target);
+            }
+            else if (tabName === 'traceroute') {
+                target = document.getElementById('tr-target').value.trim();
+                if (target) {
+                    url.searchParams.set('t', target);
+                    const node = document.getElementById('tr-node').value;
+                    const hops = document.getElementById('tr-hops').value;
+                    if (node) url.searchParams.set('node', node);
+                    if (hops) url.searchParams.set('maxhops', hops);
+                }
+            }
+            else if (tabName === 'bgp') {
+                target = document.getElementById('bgp-query').value.trim();
+                const type = document.getElementById('bgp-type').value;
+                if (target) {
+                    url.searchParams.set('t', target);
+                    url.searchParams.set('type', type);
+                }
+            }
+            else if (tabName === 'port') {
+                target = document.getElementById('port-target').value.trim();
+                const port = document.getElementById('port-port').value.trim();
+                if (target) {
+                    url.searchParams.set('t', target);
+                    if (port) url.searchParams.set('port', port);
+                    const node = document.getElementById('port-node').value;
+                    if (node) url.searchParams.set('node', node);
+                }
+            }
+            if (target) {
+                navigator.clipboard.writeText(url.toString()).then(() => {
+                    if (btn) {
+                        const originalText = btn.textContent;
+                        btn.textContent = 'Copied!';
+                        setTimeout(() => {
+                            if (btn) btn.textContent = originalText;
+                        }, 1400);
+                    }
+                });
+            }
+        }
+
+        function loadFromURL() {
+            const p = new URLSearchParams(location.search);
+            const tab = p.get('tab');
+            if (tab) switchTab(tab);
+            const target = p.get('t') || p.get('target');
+            const run = p.get('run') === '1';
+            if (tab === 'dig' && target) {
+                document.getElementById('dig-target').value = target;
+                if (p.get('q')) document.getElementById('dig-qtype').value = p.get('q');
+                if (run) setTimeout(runDig, 400);
+            }
+            if (tab === 'ssl' && target) {
+                document.getElementById('ssl-target').value = target;
+                if (run) setTimeout(runSSL, 400);
+            }
+            if (tab === 'ping' && target) {
+                document.getElementById('ping-target').value = target;
+                if (run) setTimeout(runPingAll, 400);
+            }
+            if (tab === 'traceroute' && target) {
+                document.getElementById('tr-target').value = target;
+                if (p.get('node')) document.getElementById('tr-node').value = p.get('node');
+                if (p.get('maxhops')) document.getElementById('tr-hops').value = p.get('maxhops');
+                if (run) setTimeout(runTrace, 600);
+            }
+            if (tab === 'bgp' && target) {
+                if (p.get('type')) document.getElementById('bgp-type').value = p.get('type');
+                document.getElementById('bgp-query').value = target;
+                if (run) setTimeout(runBGP, 400);
+            }
+            if (tab === 'port' && target) {
+                document.getElementById('port-target').value = target;
+                if (p.get('port')) document.getElementById('port-port').value = p.get('port');
+                if (p.get('node')) document.getElementById('port-node').value = p.get('node');
+                if (run) setTimeout(runPort, 600);
+            }
+        }
+
+        window.addEventListener('popstate', () => loadFromURL());
+        loadFromURL();
+    </script>
 </body>
+
 </html>

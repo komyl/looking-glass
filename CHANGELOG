@@ -1,5 +1,22 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 0.5 (2026-05-25)
+
+dns:
+  - Major overhaul of DNS lookup (/api/dig)
+  - Parallel queries to multiple resolvers (default: public reliable servers)
+  - Clean grouped output instead of raw dig (shows "found on X resolvers")
+  - New structured rendering in UI (card-based like SSL/BGP)
+  - Added support for debug=1 parameter
+
+ui:
+  - Added "Copy Link" button to all panels (Ping, Traceroute, DNS, Port, SSL, BGP)
+  - Shareable links with auto-run support (?tab=...&t=...&run=1)
+  - Improved loadFromURL() for deep linking
+
+api:
+  - /api/dig now returns summarized results instead of raw dig output
+
 version 0.4 (2026-05-10)
     traceroute: enrich hop IPs with ASN and operator name via ipinfo trie
     traceroute: batch hop enrichment to fix out-of-order line rendering
