@@ -27,12 +27,18 @@ func main() {
 	store.Start()
 
 	var geo *geoip.DB
-	geoPath := envOr("GEOIP_PATH", "/opt/someuser/ipinfo/ipinfo_lite.csv.gz")
-	if g, err := geoip.Open(geoPath); err != nil {
-		log.Printf("[geoip] skipped: %v", err)
-	} else {
-		geo = g
-	}
+geoPaths := []string{
+	envOr("GEOIP_PATH", "/var/lib/looking-glass/ipinfo_lite.csv.gz"),
+}
+if p2 := os.Getenv("GEOIP_PATH2"); p2 != "" {
+	geoPaths = append(geoPaths, p2)
+}
+
+if g, err := geoip.Open(geoPaths...); err != nil {
+	log.Printf("[geoip] skipped: %v", err)
+} else {
+	geo = g
+}
 
 	rl := ratelimit.New(20, 5)
 

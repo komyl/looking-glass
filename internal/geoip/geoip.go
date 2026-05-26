@@ -39,15 +39,21 @@ type DB struct {
 	current atomic.Pointer[snapshot]
 }
 
-func Open(path string) (*DB, error) {
+func Open(paths ...string) (*DB, error) {
 	db := &DB{}
-	if err := db.load(path); err != nil {
-		return nil, err
+	snap := &snapshot{asnIdx: make(map[string]*Record, 100000)}
+
+	for _, path := range paths {
+		if err := db.loadFile(path, snap); err != nil {
+			return nil, err
+		}
 	}
+
+	db.current.Store(snap)
 	return db, nil
 }
 
-func (db *DB) load(path string) error {
+func (db *DB) loadFile(path string, snap *snapshot) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("open: %w", err)
@@ -64,7 +70,6 @@ func (db *DB) load(path string) error {
 		r = gz
 	}
 
-	snap := &snapshot{asnIdx: make(map[string]*Record, 100000)}
 	cr := csv.NewReader(r)
 	cr.ReuseRecord = false
 
@@ -103,17 +108,21 @@ func (db *DB) load(path string) error {
 			ASDomain:      row[7],
 		}
 
-		snap.insert(ipnet, rec)
+		if existing := snap.lookupIP(ipnet.IP); existing != nil {
+    existing.merge(rec)
+} else {
+    snap.insert(ipnet, rec)
+    snap.count++
+}
+
 		if rec.ASN != "" {
 			if _, exists := snap.asnIdx[rec.ASN]; !exists {
 				snap.asnIdx[rec.ASN] = rec
 			}
 		}
-		snap.count++
 	}
 
-	db.current.Store(snap)
-	log.Printf("[geoip] loaded %d prefixes (%d skipped) from %s", snap.count, skipped, path)
+	log.Printf("[geoip] loaded from %s (skipped %d)", path, skipped)
 	return nil
 }
 
@@ -191,4 +200,28 @@ func CountryFlag(code string) string {
 	r1 := rune(code[0]-'A') + 0x1F1E6
 	r2 := rune(code[1]-'A') + 0x1F1E6
 	return string([]rune{r1, r2})
+}
+
+func (r *Record) merge(other *Record) {
+	if other.Country != "" {
+		r.Country = other.Country
+	}
+	if other.CountryCode != "" {
+		r.CountryCode = other.CountryCode
+	}
+	if other.Continent != "" {
+		r.Continent = other.Continent
+	}
+	if other.ContinentCode != "" {
+		r.ContinentCode = other.ContinentCode
+	}
+	if other.ASN != "" {
+		r.ASN = other.ASN
+	}
+	if other.ASName != "" {
+		r.ASName = other.ASName
+	}
+	if other.ASDomain != "" {
+		r.ASDomain = other.ASDomain
+	}
 }

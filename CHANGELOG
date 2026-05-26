@@ -1,5 +1,12 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 0.6 (2026-05-26)
+
+geoip:
+  - Support multiple CSV sources via `GEOIP_PATH` and `GEOIP_PATH2`
+  - Field-level merge when loading multiple sources (later sources take precedence for non-empty fields)
+  - `/api/ip-info` now falls back to BGP origin AS + name when GeoIP data is missing or incomplete
+
 version 0.5 (2026-05-25)
 
 dns:

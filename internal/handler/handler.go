@@ -507,13 +507,35 @@ func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{})
 		return
 	}
+
 	result := make(map[string]any)
 	for _, t := range strings.Split(targets, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		if rec := h.geo.Lookup(t); rec != nil {
+
+		rec := h.geo.Lookup(t)
+
+		if rec == nil || rec.ASN == "" {
+			routes, _ := h.store.LookupIP(t)
+			if len(routes) > 0 {
+				route := routes[0]
+				if len(route.ASPath) > 0 {
+					origin := route.ASPath[len(route.ASPath)-1]
+					if asRec := h.geo.LookupASN(origin); asRec != nil {
+						result[t] = map[string]string{
+							"asn":    fmt.Sprintf("AS%d", origin),
+							"name":   asRec.ASName,
+							"domain": asRec.ASDomain,
+						}
+						continue
+					}
+				}
+			}
+		}
+
+		if rec != nil {
 			result[t] = map[string]string{
 				"asn":    rec.ASN,
 				"name":   rec.ASName,

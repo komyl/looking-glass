@@ -21,6 +21,11 @@ Set the `GEOIP_PATH` environment variable in the master's service unit:
 Environment=GEOIP_PATH=/opt/ipinfo/ipinfo_lite.csv.gz
 ```
 
+Multiple sources may be specified using `GEOIP_PATH` and `GEOIP_PATH2`.
+The second source takes precedence for fields present in both.
+
+Merging is performed per-field. Only non-empty fields from a later source override values from earlier sources. Empty fields are left unchanged.
+
 If the file is missing or unreadable at startup, the master logs a warning and continues without GeoIP. BGP lookups still work; the `geo` and `aspath_enriched` fields are omitted from responses.
 
 ## Internal representation

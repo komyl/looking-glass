@@ -52,7 +52,7 @@ web/index.html        UI, embedded into binary at build time
 - [docs/architecture.md](docs/architecture.md) — system design and decisions
 - [docs/api.md](docs/api.md) — HTTP API reference
 - [docs/bgp-data.md](docs/bgp-data.md) — MRT format, conversion, update process
-- [docs/geoip.md](docs/geoip.md) — ipinfo CSV setup
+- [docs/Geoip.md](docs/Geoip.md) — ipinfo CSV setup
 - [CONTRIBUTING.md](CONTRIBUTING.md) — adding nodes, contributing patches
 - [CHANGELOG](CHANGELOG) — version history
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities

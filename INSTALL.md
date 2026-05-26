@@ -196,11 +196,10 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 ---
 ## Environment variables
 
-| Binary | Variable | Default | Description |
-|---|---|---|---|
-| master | `LISTEN_ADDR` | `127.0.0.1:8082` | TCP bind address |
-| master | `BGP_DATA_PATH` | `/var/lib/looking-glass/bgp.json` | BGP data file |
-| master | `GEOIP_PATH` | `/opt/ipinfo/ipinfo_lite.csv.gz` | ipinfo Lite CSV |
-| master | `LOOKING_GLASS_RESOLVERS` | (built-in list) | Comma-separated list of DNS resolvers for `/api/dig` |
-| agent  | `LISTEN_ADDR` | `0.0.0.0:9090` | TCP bind address |
-| agent  | `AGENT_SECRET` | *(required)* | Shared secret for authentication |
+| Binary | Variable              | Default                            | Description                        |
+|--------|-----------------------|------------------------------------|------------------------------------|
+| master | `LISTEN_ADDR`         | `127.0.0.1:8082`                   | TCP bind address                   |
+| master | `BGP_DATA_PATH`       | `/var/lib/looking-glass/bgp.json`  | BGP data file path                 |
+| master | `GEOIP_PATH`          | `/opt/ipinfo/ipinfo_lite.csv.gz`   | Path to ipinfo Lite CSV            |
+| master | `GEOIP_PATH2`         | *(optional)*                       | Second GeoIP CSV (higher priority) |
+| master | `LOOKING_GLASS_RESOLVERS` | (built-in list)                | DNS resolvers for `/api/dig`       |
