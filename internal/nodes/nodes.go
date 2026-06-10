@@ -1,5 +1,7 @@
 package nodes
 
+import "os"
+
 type Node struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -10,7 +12,7 @@ type Node struct {
 	Secret   string `json:"-"`
 }
 
-const Secret = "" // set via AGENT_SECRET env var
+var Secret = os.Getenv("AGENT_SECRET") // set via AGENT_SECRET env var
 
 var List = []Node{
 	{

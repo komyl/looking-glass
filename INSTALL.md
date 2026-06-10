@@ -61,6 +61,7 @@ WorkingDirectory=/opt/looking-glass
 Environment=BGP_DATA_PATH=/var/lib/looking-glass/bgp.json
 Environment=GEOIP_PATH=/opt/ipinfo/ipinfo_lite.csv.gz
 Environment=LISTEN_ADDR=127.0.0.1:8082
+Environment=AGENT_SECRET=<YOUR_SECRET>
 ExecStart=/usr/local/bin/looking-glass
 Restart=on-failure
 RestartSec=5
@@ -203,3 +204,4 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 | master | `GEOIP_PATH`          | `/opt/ipinfo/ipinfo_lite.csv.gz`   | Path to ipinfo Lite CSV            |
 | master | `GEOIP_PATH2`         | *(optional)*                       | Second GeoIP CSV (higher priority) |
 | master | `LOOKING_GLASS_RESOLVERS` | (built-in list)                | DNS resolvers for `/api/dig`       |
+| master | `AGENT_SECRET`        | *(required for agent communication)* | Secret used for authenticating with agent nodes |

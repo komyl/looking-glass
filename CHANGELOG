@@ -1,14 +1,16 @@
 looking-glass changelog. Most recent changes are at the top.
 
-version 0.6 (2026-05-26)
+version 0.7 (2026-06-11)
+security:
+  - nodes: load `Secret` from `AGENT_SECRET` environment variable instead of hardcoded value
 
+version 0.6 (2026-05-26)
 geoip:
   - Support multiple CSV sources via `GEOIP_PATH` and `GEOIP_PATH2`
   - Field-level merge when loading multiple sources (later sources take precedence for non-empty fields)
   - `/api/ip-info` now falls back to BGP origin AS + name when GeoIP data is missing or incomplete
 
 version 0.5 (2026-05-25)
-
 dns:
   - Major overhaul of DNS lookup (/api/dig)
   - Parallel queries to multiple resolvers (default: public reliable servers)
