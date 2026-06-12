@@ -36,7 +36,10 @@ internal/handler/     HTTP handlers and agent proxy
 internal/nodes/       node registry
 internal/ratelimit/   token bucket rate limiter
 internal/validator/   input sanitization
-web/index.html        UI, embedded into binary at build time
+web/                  frontend assets (embedded at build time)
+web/index.html        main HTML file
+web/css/style.css     extracted styles
+web/js/app.js         frontend logic 
 ```
 
 ## Requirements

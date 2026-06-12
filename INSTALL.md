@@ -15,7 +15,7 @@ GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o agent ./cmd/agent
 go build -ldflags="-s -w" -trimpath -o mrt2json ./cmd/mrt2json/
 ```
 
-The HTML UI is embedded into the master binary at compile time via `//go:embed`. Any change to `web/index.html` requires a rebuild and service restart.
+The HTML UI is embedded into the master binary at compile time via `//go:embed`. Any change to files inside the `web/` directory (including `index.html`, `css/`, and `js/`) requires a rebuild of the binary and service restart.
 
 ---
 

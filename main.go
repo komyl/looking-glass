@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	_ "embed"
+	"embed"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -16,8 +17,8 @@ import (
 	"looking-glass/internal/ratelimit"
 )
 
-//go:embed web/index.html
-var indexHTML []byte
+//go:embed web
+var webFS embed.FS
 
 func main() {
 	bgpPath := envOr("BGP_DATA_PATH", "/var/lib/looking-glass/bgp.json")
@@ -42,10 +43,12 @@ if g, err := geoip.Open(geoPaths...); err != nil {
 
 	rl := ratelimit.New(20, 5)
 
-	h := handler.New(store, geo, rl, indexHTML)
+	h := handler.New(store, geo, rl, nil)
+	
+	fsys, _ := fs.Sub(webFS, "web")
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.Index)
+	mux.Handle("/", http.FileServer(http.FS(fsys)))
 	mux.HandleFunc("GET /api/myip", h.MyIP)
 	mux.HandleFunc("GET /api/info", h.Info)
 	mux.HandleFunc("GET /api/ping", h.Ping)

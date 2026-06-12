@@ -1,5 +1,17 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 0.8 (2026-06-12)
+frontend:
+  - Split monolithic index.html into separate css/style.css and js/app.js
+  - Changed embedding from single file to full directory embed (`//go:embed web`)
+  - Added http.FileServer for serving static assets from embedded FS
+  - Improved output escaping across render functions to reduce XSS risk:
+    - renderTraceLine, renderBGP, renderDNS
+    - Dynamic updates in ping results table
+    - Error message rendering in multiple endpoints
+docs:
+  - Minor updates to INSTALL.md regarding web UI changes
+
 version 0.7 (2026-06-11)
 security:
   - nodes: load `Secret` from `AGENT_SECRET` environment variable instead of hardcoded value

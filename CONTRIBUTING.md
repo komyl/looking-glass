@@ -48,5 +48,5 @@ Update `AGENT_SECRET` in every node's service file and the `Secret` constant in 
 
 - Standard Go formatting. Run `gofmt` before committing.
 - No external Go dependencies. The project uses stdlib only.
-- Any change to `web/index.html` requires a master rebuild — the file is embedded at compile time.
+- Any change to files inside the `web/` directory requires a master rebuild because the directory is embedded at compile time.
 - Keep commit messages in the form `component: short description of what changed`.
