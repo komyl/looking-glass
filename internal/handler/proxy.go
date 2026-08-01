@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"looking-glass/internal/nodes"
+	"looking-glass/internal/validator"
 )
 
 func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
@@ -18,7 +20,6 @@ func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
 		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Location string `json:"location"`
-		ISP      string `json:"isp"`
 	}
 	var pub []publicNode
 	for _, n := range nodes.List {
@@ -26,7 +27,6 @@ func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
 			ID:       n.ID,
 			Name:     n.Name,
 			Location: n.Location,
-			ISP:      n.ISP,
 		})
 	}
 	writeJSON(w, pub)
@@ -41,8 +41,8 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	target = strings.TrimSuffix(target, "/")
 	target = strings.Split(target, "/")[0]
 
-	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
-		writeError(w, "invalid target", http.StatusBadRequest)
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -70,24 +70,46 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
+	flusher, ok := sseHeaders(w)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	select {
+	case h.semaphore <- struct{}{}:
+		defer func() { <-h.semaphore }()
+	default:
+		sseErr(w, flusher, "server busy — too many concurrent requests")
+		return
+	}
+	ip := clientIP(r)
+	if !h.acquireIP(ip) {
+		sseErr(w, flusher, "you already have an active request — please wait")
+		return
+	}
+	defer h.releaseIP(ip)
 
-	params := r.URL.Query()
-	agentURL := fmt.Sprintf("%s/%s?%s", node.URL, action, params.Encode())
+	q := url.Values{"target": {target}}
+	switch action {
+	case "ping":
+		if v := r.URL.Query().Get("count"); v != "" {
+			q.Set("count", v)
+		}
+	case "traceroute":
+		if v := r.URL.Query().Get("maxhops"); v != "" {
+			q.Set("maxhops", v)
+		}
+	case "portcheck":
+		if v := r.URL.Query().Get("port"); v != "" {
+			q.Set("port", v)
+		}
+	}
+	agentURL := fmt.Sprintf("%s/%s?%s", node.URL, action, q.Encode())
 
 	req, err := http.NewRequestWithContext(r.Context(), "GET", agentURL, nil)
 	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] failed to create request: %s\n\n", err.Error())
-		flusher.Flush()
+		sseErr(w, flusher, "failed to create request: "+sanitizeErr(err))
 		return
 	}
 	req.Header.Set("X-Agent-Secret", nodes.Secret)
@@ -95,16 +117,14 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 130 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Fprintf(w, "data: [ERROR] agent unreachable: %s\n\n", err.Error())
-		flusher.Flush()
+		sseErr(w, flusher, "agent unreachable")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Fprintf(w, "data: [ERROR] agent error: %s\n\n", strings.TrimSpace(string(body)))
-		flusher.Flush()
+		sseErr(w, flusher, "agent error: "+strings.TrimSpace(string(body)))
 		return
 	}
 
@@ -135,8 +155,8 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	portStr := r.URL.Query().Get("port")
 
-	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
-		writeError(w, "invalid target", http.StatusBadRequest)
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -163,15 +183,26 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agentURL := fmt.Sprintf("%s/portcheck?target=%s&port=%s",
-		node.URL,
-		target,
-		portStr,
-	)
+	select {
+	case h.semaphore <- struct{}{}:
+		defer func() { <-h.semaphore }()
+	default:
+		writeError(w, "server busy — too many concurrent requests", http.StatusTooManyRequests)
+		return
+	}
+	ip := clientIP(r)
+	if !h.acquireIP(ip) {
+		writeError(w, "you already have an active request — please wait", http.StatusTooManyRequests)
+		return
+	}
+	defer h.releaseIP(ip)
+
+	q := url.Values{"target": {target}, "port": {portStr}}
+	agentURL := fmt.Sprintf("%s/portcheck?%s", node.URL, q.Encode())
 
 	req, err := http.NewRequestWithContext(r.Context(), "GET", agentURL, nil)
 	if err != nil {
-		writeError(w, "internal error: "+err.Error(), http.StatusInternalServerError)
+		writeError(w, "internal error: "+sanitizeErr(err), http.StatusInternalServerError)
 		return
 	}
 	req.Header.Set("X-Agent-Secret", nodes.Secret)
@@ -179,7 +210,7 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		writeError(w, "agent unreachable: "+err.Error(), http.StatusBadGateway)
+		writeError(w, "agent unreachable", http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -190,8 +221,8 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 }
 func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
-	if target == "" || strings.ContainsAny(target, ";&|$(){}[]<>'\"`\n\r\t\\") {
-		writeError(w, "invalid target", http.StatusBadRequest)
+	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -203,7 +234,6 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	type nodeResult struct {
 		ID       string  `json:"id"`
 		Name     string  `json:"name"`
-		ISP      string  `json:"isp"`
 		Sent     int     `json:"sent"`
 		Received int     `json:"received"`
 		Loss     float64 `json:"loss"`
@@ -216,7 +246,7 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 
 	results := make([]nodeResult, len(nodes.List))
 	for i, n := range nodes.List {
-		results[i] = nodeResult{ID: n.ID, Name: n.Name, ISP: n.ISP, Status: "pending"}
+		results[i] = nodeResult{ID: n.ID, Name: n.Name, Status: "pending"}
 	}
 
 	type agentResp struct {
@@ -229,11 +259,16 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 		Error    string  `json:"error,omitempty"`
 	}
 
+	const maxConcurrentAgents = 8
+	sem := make(chan struct{}, maxConcurrentAgents)
 	var wg sync.WaitGroup
 	for i, n := range nodes.List {
 		wg.Add(1)
 		go func(idx int, node nodes.Node) {
 			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
 			agentURL := fmt.Sprintf("%s/ping-summary?target=%s&count=4", node.URL, target)
 			req, err := http.NewRequest("GET", agentURL, nil)
