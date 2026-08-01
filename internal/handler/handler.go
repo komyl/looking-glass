@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"looking-glass/internal/bgp"
@@ -28,6 +29,11 @@ var defaultResolvers = []string{
 	"1.0.0.1",
 	"9.9.9.9",
 	"149.112.112.112",
+}
+
+type ipSemEntry struct {
+	ch   chan struct{}
+	last atomic.Int64
 }
 
 type Handler struct {
@@ -49,7 +55,7 @@ func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byt
 		}
 	}
 
-	return &Handler{
+	h := &Handler{
 		store:     store,
 		geo:       geo,
 		rl:        rl,
@@ -57,12 +63,16 @@ func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byt
 		semaphore: make(chan struct{}, 30),
 		resolvers: resolvers,
 	}
+	go h.cleanupIPSem()
+	return h
 }
 
 func (h *Handler) acquireIP(ip string) bool {
-	ch, _ := h.ipSem.LoadOrStore(ip, make(chan struct{}, 1))
+	v, _ := h.ipSem.LoadOrStore(ip, &ipSemEntry{ch: make(chan struct{}, 1)})
+	e := v.(*ipSemEntry)
+	e.last.Store(time.Now().UnixNano())
 	select {
-	case ch.(chan struct{}) <- struct{}{}:
+	case e.ch <- struct{}{}:
 		return true
 	default:
 		return false
@@ -70,23 +80,38 @@ func (h *Handler) acquireIP(ip string) bool {
 }
 
 func (h *Handler) releaseIP(ip string) {
-	if ch, ok := h.ipSem.Load(ip); ok {
+	if v, ok := h.ipSem.Load(ip); ok {
+		e := v.(*ipSemEntry)
 		select {
-		case <-ch.(chan struct{}):
+		case <-e.ch:
 		default:
 		}
 	}
 }
 
+func (h *Handler) cleanupIPSem() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		cutoff := time.Now().Add(-30 * time.Minute).UnixNano()
+		h.ipSem.Range(func(key, value any) bool {
+			if value.(*ipSemEntry).last.Load() < cutoff {
+				h.ipSem.Delete(key)
+			}
+			return true
+		})
+	}
+}
+
 func clientIP(r *http.Request) string {
-	if v := r.Header.Get("X-Forwarded-For"); v != "" {
-		first := strings.TrimSpace(strings.SplitN(v, ",", 2)[0])
-		if ip := net.ParseIP(first); ip != nil {
+	if v := r.Header.Get("X-Real-IP"); v != "" {
+		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
 			return ip.String()
 		}
 	}
-	if v := r.Header.Get("X-Real-IP"); v != "" {
-		if ip := net.ParseIP(strings.TrimSpace(v)); ip != nil {
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		first := strings.TrimSpace(strings.SplitN(v, ",", 2)[0])
+		if ip := net.ParseIP(first); ip != nil {
 			return ip.String()
 		}
 	}
@@ -503,16 +528,26 @@ func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "targets is required", http.StatusBadRequest)
 		return
 	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
 	if h.geo == nil {
 		writeJSON(w, map[string]any{})
 		return
 	}
 
+	const maxTargets = 50
 	result := make(map[string]any)
+	count := 0
 	for _, t := range strings.Split(targets, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
+		}
+		count++
+		if count > maxTargets {
+			break
 		}
 
 		rec := h.geo.Lookup(t)
