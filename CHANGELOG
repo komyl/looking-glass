@@ -1,5 +1,17 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 0.9 (2026-08-01)
+security:
+  - handler: trust X-Real-IP before X-Forwarded-For in clientIP to stop per-IP rate-limit and subprocess-semaphore bypass via spoofed X-Forwarded-For
+  - proxy: return a fixed "agent unreachable" message with no error text in Proxy and PortCheck instead of returning raw dial errors that leaked internal agent IP:port
+  - proxy: gate Proxy and PortCheck behind the same per-IP and global subprocess semaphores as Ping/Traceroute/Dig
+  - proxy: fix Proxy target validation bypass — the sanitized target was checked, but the raw unsanitized query was what actually got forwarded to the agent
+  - handler: add periodic cleanup for the per-IP subprocess semaphore map to stop unbounded growth
+  - handler: add rate limiting and a 50-target cap to /api/ip-info
+  - proxy: validate targets in Proxy, PortCheck, and PingAll through internal/validator instead of ad hoc blacklists
+  - proxy: bound PingAll's per-request agent fan-out to 8 concurrent requests instead of unconditionally spawning one goroutine per node
+  - nodes: fail fast at startup if AGENT_SECRET is unset instead of silently sending an empty secret
+
 version 0.8 (2026-06-12)
 frontend:
   - Split monolithic index.html into separate css/style.css and js/app.js

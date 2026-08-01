@@ -73,9 +73,9 @@ SSE stream, single node. Params: `target` (required), `maxhops` (5–64, default
 
 ### GET /api/proxy
 
-Proxies ping or traceroute SSE from a specific agent.
+Proxies ping, traceroute, or portcheck from a specific agent.
 
-Params: `node` (required), `action` (`ping` or `traceroute`), `target`, and action-specific params.
+Params: `node` (required), `action` (`ping`, `traceroute`, or `portcheck`), `target`, and one action-specific param: `count` for ping, `maxhops` for traceroute, `port` for portcheck.
 
 ---
 
@@ -162,6 +162,20 @@ Params: `type` (`ip`, `prefix`, or `asn`), `query` (IP, CIDR, or ASN).
 ```
 
 `geo` and `aspath_enriched` present only for `type=ip` when GeoIP is loaded. ASN lookup capped at 1000 routes.
+
+---
+
+### GET /api/ip-info
+
+Batch GeoIP/AS lookup, used by the UI to enrich traceroute hop IPs.
+
+Params: `targets` (required, comma-separated, capped at 50 per request).
+
+```json
+{"1.1.1.1": {"asn": "AS13335", "name": "Cloudflare, Inc.", "domain": "cloudflare.com"}}
+```
+
+Returns `{}` if no GeoIP database is loaded.
 
 ---
 

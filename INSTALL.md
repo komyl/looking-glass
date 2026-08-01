@@ -204,4 +204,4 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 | master | `GEOIP_PATH`          | `/opt/ipinfo/ipinfo_lite.csv.gz`   | Path to ipinfo Lite CSV            |
 | master | `GEOIP_PATH2`         | *(optional)*                       | Second GeoIP CSV (higher priority) |
 | master | `LOOKING_GLASS_RESOLVERS` | (built-in list)                | DNS resolvers for `/api/dig`       |
-| master | `AGENT_SECRET`        | *(required for agent communication)* | Secret used for authenticating with agent nodes |
+| master | `AGENT_SECRET`        | *(required)*                       | Secret used for authenticating with agent nodes. Master exits at startup if unset. |

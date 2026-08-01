@@ -51,7 +51,7 @@ WebSocket was evaluated and rejected: it requires a connection upgrade, adds bid
 
 ## Multi-node ping
 
-The `/api/ping-all` endpoint fans out to all registered agents in parallel using goroutines. Each agent executes `ping -c 4`, parses the output, and returns structured JSON (`sent`, `received`, `loss`, `rtt_min`, `rtt_avg`, `rtt_max`). The master waits for all goroutines to complete and returns a single JSON response. The UI renders results as a table that populates when the response arrives.
+The `/api/ping-all` endpoint fans out to all registered agents in parallel using goroutines, bounded to 8 concurrent agent requests at a time. Each agent executes `ping -c 4`, parses the output, and returns structured JSON (`sent`, `received`, `loss`, `rtt_min`, `rtt_avg`, `rtt_max`). The master waits for all goroutines to complete and returns a single JSON response. The UI renders results as a table that populates when the response arrives.
 
 The original ping implementation streamed output from a single selected node via SSE, mirroring traceroute. This was replaced because the parallel table view is more useful for network diagnostics — it shows relative performance across ISPs in a single request.
 
@@ -65,9 +65,9 @@ Three layers:
 
 **Application token bucket** — per IP, 20 req/min sustained, burst of 5. In-process, no Redis. Implemented in `internal/ratelimit`. Entries are cleaned up after 30 minutes of inactivity.
 
-**Per-IP subprocess semaphore** — each IP may hold at most one active subprocess (ping, traceroute, dig) at a time. Implemented via a `sync.Map` of buffered `chan struct{}` with capacity 1. Prevents a single IP from holding multiple long-running processes simultaneously.
+**Per-IP subprocess semaphore** — each IP may hold at most one active subprocess (ping, traceroute, dig) at a time, or one active request via `/api/proxy` or `/api/portcheck`. Implemented via a `sync.Map` of buffered `chan struct{}` with capacity 1, cleaned up after 30 minutes of inactivity. Prevents a single IP from holding multiple long-running processes simultaneously.
 
-A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent subprocesses across all IPs.
+A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent subprocesses across all IPs, and the same semaphore gates `/api/proxy` and `/api/portcheck`.
 
 ---
 
@@ -75,7 +75,9 @@ A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent su
 
 All user-supplied targets pass through `internal/validator` before reaching any subprocess. The validator accepts valid IPv4/IPv6 addresses and RFC-compliant hostnames. It rejects inputs containing shell metacharacters. `exec.Command` is called with arguments as a slice — no shell interpolation occurs at any point.
 
-Error messages returned to clients are sanitized to remove internal IP addresses. The `sanitizeErr` function strips `dial tcp <src>->` and similar prefixes from error strings, retaining only the destination and error description.
+`Proxy` and `PortCheck` return a fixed `"agent unreachable"` message on agent-connection failure, with none of the underlying error text included — there is nothing in that response to sanitize or leak, regardless of what shape the underlying network error takes.
+
+`SSLCheck` separately uses a `sanitizeErr` helper that strips `dial tcp <src>->` and similar prefixes from error strings. This only rewrites errors that contain that `->` pattern (established-connection read/write failures); it does not rewrite `dial tcp <addr>: connect: connection refused` (connection-never-established failures), which is the common case when a target simply isn't listening. That gap is a known limitation, not yet fixed — it's lower severity than the `Proxy`/`PortCheck` case because the address exposed there is the user's own requested target, not an internal secret.
 
 ---
 
@@ -85,3 +87,4 @@ Error messages returned to clients are sanitized to remove internal IP addresses
 - Agent port 9090 is restricted to the master IP via ufw on each agent node.
 - The agent URL and secret are never returned to clients. The `/api/nodes` endpoint returns only public metadata (ID, name, ISP).
 - The master binary is deployed behind nginx. It binds `127.0.0.1:8082` and is not directly reachable from the internet.
+- Client IP for rate limiting is taken from `X-Real-IP` first, falling back to `X-Forwarded-For` only if absent — `X-Real-IP` is set by nginx from `$remote_addr` and cannot be overridden by the client, whereas `X-Forwarded-For` can be prefixed with attacker-controlled values by nginx configs that append rather than overwrite it.
