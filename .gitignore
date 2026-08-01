@@ -33,3 +33,8 @@ mrt2json
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code local-only files (not shared with the team)
+CLAUDE.local.md
+CLAUDE.md
+.claude/settings.local.json
