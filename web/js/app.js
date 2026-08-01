@@ -104,7 +104,6 @@ function runPingAll() {
     out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
 <thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
 <th style="text-align:left;padding:8px 10px">Node</th>
-<th style="text-align:left;padding:8px 10px">ISP</th>
 <th style="text-align:center;padding:8px 10px">Sent/Recv</th>
 <th style="text-align:center;padding:8px 10px">Loss</th>
 <th style="text-align:right;padding:8px 10px">RTT min/avg/max</th>
@@ -117,7 +116,6 @@ function runPingAll() {
         ns.forEach(n => {
             tbody.innerHTML += `<tr id="ping-row-${n.id}" style="border-bottom:1px solid var(--bdr2)">
 <td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(n.name)}</td>
-<td style="padding:10px 10px;color:var(--muted2);font-size:12px">${esc(n.isp)}</td>
 <td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
 <td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
 <td style="padding:10px 10px;text-align:right;font-family:var(--mono)">—</td>
@@ -135,10 +133,11 @@ function runPingAll() {
                 const statusColor = r.status === 'ok' ? 'var(--green)' : r.status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
                 const statusText = r.status === 'ok' ? 'OK' : r.status === 'degraded' ? 'Degraded' : r.status === 'down' ? 'Down' : 'Error';
                 const lossColor = r.loss === 0 ? 'var(--green)' : r.loss < 50 ? 'var(--yellow)' : 'var(--red)';
-                cells[2].textContent = r.error ? '—' : `${r.sent} / ${r.received}`;
-                cells[3].innerHTML = r.error ? '—' : `<span style="color:${lossColor}">${esc(r.loss)}%</span>`;
-                cells[4].textContent = r.error ? r.error : `${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`;
-                cells[5].innerHTML = `<span style="color:${statusColor};font-weight:700;font-size:12px">${esc(statusText)}</span>`;
+
+                cells[1].textContent = r.error ? '—' : `${r.sent} / ${r.received}`;
+                cells[2].innerHTML = r.error ? '—' : `<span style="color:${lossColor}">${esc(r.loss)}%</span>`;
+                cells[3].textContent = r.error ? r.error : `${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`;
+                cells[4].innerHTML = `<span style="color:${statusColor};font-weight:700;font-size:12px">${esc(statusText)}</span>`;
             });
             setStatus('ping', 'ok', 'Done');
             document.getElementById('ping-run').disabled = false;
