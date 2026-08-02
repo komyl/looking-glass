@@ -211,6 +211,15 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	pinnedIP, err := validator.ValidateNotPrivate(r.Context(), target)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	probeTarget := target
+	if pinnedIP != nil {
+		probeTarget = pinnedIP.String()
+	}
 	if !h.rl.Allow(clientIP(r)) {
 		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
 		return
@@ -239,7 +248,7 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 	defer h.releaseIP(ip)
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), "-W", "2", "-i", "0.5", target)
+	cmd := exec.CommandContext(ctx, "ping", "-c", strconv.Itoa(count), "-W", "2", "-i", "0.5", probeTarget)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseErr(w, flusher, "internal error: "+err.Error())
@@ -270,6 +279,15 @@ func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	pinnedIP, err := validator.ValidateNotPrivate(r.Context(), target)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	probeTarget := target
+	if pinnedIP != nil {
+		probeTarget = pinnedIP.String()
+	}
 	if !h.rl.Allow(clientIP(r)) {
 		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
 		return
@@ -298,7 +316,7 @@ func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
 	defer h.releaseIP(ip)
 	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "traceroute", "-n", "-w", "2", "-m", strconv.Itoa(maxHops), target)
+	cmd := exec.CommandContext(ctx, "traceroute", "-n", "-w", "2", "-m", strconv.Itoa(maxHops), probeTarget)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		sseErr(w, flusher, "internal error: "+err.Error())
@@ -601,8 +619,17 @@ func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	pinnedIP, err := validator.ValidateNotPrivate(r.Context(), host)
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	dialHost := host
+	if pinnedIP != nil {
+		dialHost = pinnedIP.String()
+	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	addr := net.JoinHostPort(host, port)
+	addr := net.JoinHostPort(dialHost, port)
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
 		ServerName: host,
 	})

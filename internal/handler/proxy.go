@@ -45,6 +45,14 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Master-side check only: the pinned IP isn't used here because the
+	// actual probe runs on the agent's host, which resolves target itself.
+	// Does not close the DNS-rebinding window for this path — see
+	// docs/ARCHITECTURE.md "Input validation".
+	if _, err := validator.ValidateNotPrivate(r.Context(), target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	switch action {
 	case "ping", "traceroute", "portcheck":
@@ -159,6 +167,11 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Master-side check only — see the comment on the same call in Proxy.
+	if _, err := validator.ValidateNotPrivate(r.Context(), target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
@@ -222,6 +235,11 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if err := validator.ValidateTarget(target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Master-side check only — see the comment on the same call in Proxy.
+	if _, err := validator.ValidateNotPrivate(r.Context(), target); err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}

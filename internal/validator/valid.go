@@ -1,11 +1,13 @@
 package validator
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var hostnameRe = regexp.MustCompile(
@@ -29,6 +31,50 @@ func ValidateTarget(s string) error {
 		return nil
 	}
 	return fmt.Errorf("invalid target: must be a valid IP address or hostname")
+}
+
+// ValidateNotPrivate rejects targets that are, or resolve via DNS to, a
+// loopback, private (RFC 1918/4193), link-local, unspecified, or multicast
+// address — including 169.254.169.254, the common cloud-metadata endpoint.
+// Callers must run ValidateTarget first; s is assumed to already be a bare
+// hostname or IP literal with no port.
+//
+// On success it also returns the resolved IP (the first address returned
+// by DNS, or s itself parsed as an IP literal). Callers that connect to
+// the target directly must reuse that IP for the actual network operation
+// instead of re-resolving the hostname, otherwise a DNS-rebinding attacker
+// can serve a public answer here and a private one moments later. A nil IP
+// with a nil error means DNS resolution failed or returned no records;
+// callers should fall back to the original hostname and let the downstream
+// operation report the resolution failure.
+func ValidateNotPrivate(ctx context.Context, s string) (net.IP, error) {
+	if ip := net.ParseIP(s); ip != nil {
+		if isPrivateIP(ip) {
+			return nil, fmt.Errorf("target resolves to a private or reserved address")
+		}
+		return ip, nil
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(lookupCtx, "ip", s)
+	if err != nil || len(ips) == 0 {
+		return nil, nil
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return nil, fmt.Errorf("target resolves to a private or reserved address")
+		}
+	}
+	return ips[0], nil
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsUnspecified() ||
+		ip.IsMulticast()
 }
 
 func ValidatePrefix(s string) error {
