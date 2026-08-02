@@ -470,6 +470,10 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "query parameter is required", http.StatusBadRequest)
 		return
 	}
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
 	var routes []bgp.Route
 	var lookupErr error
 	switch qtype {

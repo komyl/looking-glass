@@ -69,6 +69,8 @@ Three layers:
 
 A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent subprocesses across all IPs, and the same semaphore gates `/api/proxy` and `/api/portcheck`.
 
+`/api/bgp` is gated by the application token bucket like every other target-facing endpoint. `/api/myip`, `/api/info`, and `/api/nodes` are deliberately left unthrottled — they're called on every page load, are cheap in-memory lookups, and rate limiting them risks breaking legitimate usage for shared/NAT IPs for negligible security benefit.
+
 ---
 
 ## Input validation

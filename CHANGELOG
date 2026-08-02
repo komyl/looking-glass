@@ -11,6 +11,10 @@ security:
   - proxy: validate targets in Proxy, PortCheck, and PingAll through internal/validator instead of ad hoc blacklists
   - proxy: bound PingAll's per-request agent fan-out to 8 concurrent requests instead of unconditionally spawning one goroutine per node
   - nodes: fail fast at startup if AGENT_SECRET is unset instead of silently sending an empty secret
+  - validator: reject targets that are or resolve to a loopback, private, link-local, or multicast address (including 169.254.169.254) across ping, traceroute, portcheck, ssl, proxy, and ping-all
+  - handler: rate-limit /api/bgp with the same per-IP token bucket used by other probe endpoints
+  - validator: return the resolved IP from ValidateNotPrivate and pin it for ping/traceroute/ssl's actual connection, closing a DNS-rebinding window between the validation lookup and the real one
+  - handler: drop the ValidateNotPrivate check from Dig — it only queries public resolvers about the target name and never connects to the target address, so the check had no SSRF benefit and incorrectly blocked legitimate PTR lookups against internal IPs
 
 version 0.8 (2026-06-12)
 frontend:
