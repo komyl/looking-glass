@@ -609,20 +609,21 @@ func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	portStr := r.URL.Query().Get("port")
+	port := "443"
+	if portStr != "" {
+		n, err := strconv.Atoi(portStr)
+		if err != nil || n < 1 || n > 65535 {
+			writeError(w, "invalid port", http.StatusBadRequest)
+			return
+		}
+		port = portStr
+	}
 	if !h.rl.Allow(clientIP(r)) {
 		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
 		return
 	}
 	host := target
-	port := "443"
-	if strings.Contains(target, ":") {
-		var err error
-		host, port, err = net.SplitHostPort(target)
-		if err != nil {
-			writeError(w, "invalid host:port", http.StatusBadRequest)
-			return
-		}
-	}
 	pinnedIP, err := validator.ValidateNotPrivate(r.Context(), host)
 	if err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)

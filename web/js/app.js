@@ -379,11 +379,14 @@ document.getElementById('bgp-query').addEventListener('keydown', e => { if (e.ke
 
 function runSSL() {
     const target = document.getElementById('ssl-target').value.trim();
+    const port = document.getElementById('ssl-port').value.trim();
     if (!target) return;
     const out = document.getElementById('ssl-out');
     out.innerHTML = '<span class="ph"><span class="spin"></span>&nbsp;Checking...</span>';
     setStatus('ssl', 'run', 'Checking...');
-    fetch('/api/ssl?target=' + encodeURIComponent(target))
+    let url = '/api/ssl?target=' + encodeURIComponent(target);
+    if (port) url += '&port=' + encodeURIComponent(port);
+    fetch(url)
         .then(r => r.json())
         .then(d => {
             if (d.error && !d.subject) { setStatus('ssl', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(d.error)}</span>`; return }
@@ -408,6 +411,7 @@ ${warn}
         .catch(err => { setStatus('ssl', 'err', 'Error'); out.innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>` });
 }
 document.getElementById('ssl-target').addEventListener('keydown', e => { if (e.key === 'Enter') runSSL() });
+document.getElementById('ssl-port').addEventListener('keydown', e => { if (e.key === 'Enter') runSSL() });
 
 function runPort() {
     const target = document.getElementById('port-target').value.trim();
@@ -457,7 +461,11 @@ function copyShareLink(btn) {
     }
     else if (tabName === 'ssl') {
         target = document.getElementById('ssl-target').value.trim();
-        if (target) url.searchParams.set('t', target);
+        if (target) {
+            url.searchParams.set('t', target);
+            const port = document.getElementById('ssl-port').value.trim();
+            if (port && port !== '443') url.searchParams.set('port', port);
+        }
     }
     else if (tabName === 'ping') {
         target = document.getElementById('ping-target').value.trim();
@@ -517,6 +525,7 @@ function loadFromURL() {
     }
     if (tab === 'ssl' && target) {
         document.getElementById('ssl-target').value = target;
+        if (p.get('port')) document.getElementById('ssl-port').value = p.get('port');
         if (run) setTimeout(runSSL, 400);
     }
     if (tab === 'ping' && target) {

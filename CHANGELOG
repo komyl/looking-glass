@@ -1,6 +1,8 @@
 looking-glass changelog. Most recent changes are at the top.
 
 version 0.9 (2026-08-01)
+fixes:
+  - handler: add a separate `port` query param to /api/ssl for non-443 ports; the documented `host:port` target syntax was rejected by validator.ValidateTarget's hostname regex before ever reaching SSLCheck's splitting logic, making it dead code — docs/API.md corrected to match
 security:
   - handler: trust X-Real-IP before X-Forwarded-For in clientIP to stop per-IP rate-limit and subprocess-semaphore bypass via spoofed X-Forwarded-For
   - proxy: return a fixed "agent unreachable" message with no error text in Proxy and PortCheck instead of returning raw dial errors that leaked internal agent IP:port
