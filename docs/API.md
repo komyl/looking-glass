@@ -115,7 +115,7 @@ Record found on 12 out of 15 resolvers
 
 TLS dial and certificate inspection. On validation failure, retries with `InsecureSkipVerify` and returns the certificate alongside the error.
 
-Params: `target` — hostname or IP (no port suffix). `port` — optional, default 443, 1-65535.
+Params: `target` — hostname, IP, host:port, or ip:port (default port 443).
 
 ```json
 {

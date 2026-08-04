@@ -605,25 +605,25 @@ func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
-	if err := validator.ValidateTarget(target); err != nil {
+	host := target
+	port := "443"
+	if strings.Contains(target, ":") {
+		if sh, sp, err := net.SplitHostPort(target); err == nil {
+			host, port = sh, sp
+		}
+	}
+	if err := validator.ValidateTarget(host); err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	portStr := r.URL.Query().Get("port")
-	port := "443"
-	if portStr != "" {
-		n, err := strconv.Atoi(portStr)
-		if err != nil || n < 1 || n > 65535 {
-			writeError(w, "invalid port", http.StatusBadRequest)
-			return
-		}
-		port = portStr
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		writeError(w, "invalid port", http.StatusBadRequest)
+		return
 	}
 	if !h.rl.Allow(clientIP(r)) {
 		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
 		return
 	}
-	host := target
 	pinnedIP, err := validator.ValidateNotPrivate(r.Context(), host)
 	if err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
