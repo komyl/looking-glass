@@ -122,6 +122,37 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// Alternative considered for the WCDN/ParsPack-fronted deployment:
+// nginx currently sets X-Real-IP to $remote_addr, which is always the
+// CDN edge's own IP behind WCDN — never the real visitor. Correct
+// display would require trusting the LAST entry of X-Forwarded-For
+// (not the first, which is exactly the spoofable direction Finding #1
+// closed) on the assumption that WCDN appends its own observed IP to
+// the end of the chain rather than passing the client's header
+// through unmodified. That assumption was NOT confirmed — a tcpdump
+// capture of a natural (non-crafted) request never showed WCDN
+// setting any header with the real client IP, and forged
+// X-Forwarded-For values were not reliably distinguishable from real
+// ones in testing. Left disabled pending a conclusive test (capture
+// raw traffic to the origin for a normal request, and separately for
+// a request carrying a forged X-Forwarded-For, from outside the
+// server) before ever enabling this in production.
+//
+// func clientIPFallback(r *http.Request) string {
+//     if v := r.Header.Get("X-Forwarded-For"); v != "" {
+//         parts := strings.Split(v, ",")
+//         last := strings.TrimSpace(parts[len(parts)-1])
+//         if ip := net.ParseIP(last); ip != nil {
+//             return ip.String()
+//         }
+//     }
+//     host, _, err := net.SplitHostPort(r.RemoteAddr)
+//     if err != nil {
+//         return r.RemoteAddr
+//     }
+//     return host
+// }
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
