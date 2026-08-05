@@ -142,10 +142,7 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// action == "portcheck": this generic proxy path is unused by the
-	// frontend (the Port tab calls /api/portcheck, which is captured
-	// separately in PortCheck) — preserved exactly as before, raw byte
-	// passthrough, no Permanent Link capture.
+	// action == "portcheck": intentionally uncaptured, no Permanent Link here.
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -164,12 +161,8 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// streamProxyWithCapture relays an agent's already-SSE-formatted ping/
-// traceroute stream line by line (mirroring Ping/Traceroute's own
-// exec.Command-based streaming) instead of copying raw bytes, so it can
-// inject the initial request_id event and capture the finished transcript
-// once the stream reaches its own [DONE]/[ERROR] sentinel. Nothing is
-// captured on early client disconnect — there is no finished result yet.
+// Nothing is captured on early client disconnect — there is no finished
+// result yet.
 func (h *Handler) streamProxyWithCapture(w http.ResponseWriter, r *http.Request, flusher http.Flusher, resp *http.Response, kind, target string) {
 	capture := beginCapture(w, flusher)
 	finished := false

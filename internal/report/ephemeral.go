@@ -12,9 +12,7 @@ const (
 	maxEphemeralSize = 2000
 )
 
-// Ephemeral is one completed check's result, held in memory only, keyed by
-// the request ID handed back to the client. It is the source promote reads
-// from — never data the client submits.
+// Never data the client submits.
 type Ephemeral struct {
 	Kind      string
 	Target    string
@@ -22,9 +20,8 @@ type Ephemeral struct {
 	CreatedAt time.Time
 }
 
-// EphemeralCache holds the last 30 minutes of completed check results,
-// single-node/in-process only — there is no cross-node replication, by
-// design (see docs/API.md and the whatfind.md report for this feature).
+// Single-node/in-process only — there is no cross-node replication, by
+// design (see docs/ARCHITECTURE.md).
 type EphemeralCache struct {
 	mu      sync.Mutex
 	entries map[string]Ephemeral
@@ -36,11 +33,10 @@ func NewEphemeralCache() *EphemeralCache {
 	return c
 }
 
-// Put stores a completed result under id. If the cache is at capacity, the
-// single oldest entry is evicted to make room — safe here because an
-// evicted entry only means "Permanent Link" can no longer be pressed for
-// that already-delivered result; the result itself was already returned to
-// the client in the original response.
+// If the cache is at capacity, the single oldest entry is evicted to make
+// room — safe here because an evicted entry only means "Permanent Link" can
+// no longer be pressed for that already-delivered result; the result itself
+// was already returned to the client in the original response.
 func (c *EphemeralCache) Put(id, kind, target string, data json.RawMessage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

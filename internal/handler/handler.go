@@ -183,16 +183,11 @@ func sseErr(w http.ResponseWriter, f http.Flusher, msg string) {
 	f.Flush()
 }
 
-// sseEvent writes a named SSE event, distinct from the default unnamed
-// "message" event sseLine/sseDone/sseErr produce — used for the initial
-// request_id event a client's EventSource listens for separately.
 func sseEvent(w http.ResponseWriter, f http.Flusher, event, data string) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 	f.Flush()
 }
 
-// sseCapture accumulates a streaming check's output so the completed
-// result can be handed to the ephemeral cache once the stream concludes.
 // A nil *sseCapture (ID generation failure) makes add/finish no-ops —
 // Permanent Link becomes unavailable for that one request rather than
 // failing the check itself.
@@ -201,11 +196,6 @@ type sseCapture struct {
 	lines []string
 }
 
-// beginCapture generates a request ID and emits it as the initial SSE
-// event immediately — before any hop/result data — since the client needs
-// it up front to correlate a later Permanent Link click with this run.
-// The ephemeral cache itself is only populated once the check has fully
-// finished, via finish.
 func beginCapture(w http.ResponseWriter, f http.Flusher) *sseCapture {
 	id, err := report.NewID()
 	if err != nil {
@@ -222,10 +212,9 @@ func (c *sseCapture) add(line string) {
 	c.lines = append(c.lines, line)
 }
 
-// finish stores the accumulated transcript in the ephemeral cache. Only
-// call this once the check has definitively finished (normal completion or
-// an in-stream [ERROR]) — never on an early client disconnect, since there
-// is no full result to remember in that case.
+// Only call this once the check has definitively finished (normal
+// completion or an in-stream [ERROR]) — never on an early client
+// disconnect, since there is no full result to remember in that case.
 func (h *Handler) finishCapture(c *sseCapture, kind, target string, extra map[string]any) {
 	if c == nil || h.ephemeral == nil {
 		return
@@ -241,11 +230,6 @@ func (h *Handler) finishCapture(c *sseCapture, kind, target string, extra map[st
 	h.ephemeral.Put(c.id, kind, target, data)
 }
 
-// captureJSON generates a request ID for a non-streaming JSON result and
-// stores it in the ephemeral cache, returning the ID for inclusion in the
-// response body. Returns "" (silently skipping capture) on ID generation
-// failure — Permanent Link becomes unavailable for that response rather
-// than failing the check itself.
 func (h *Handler) captureJSON(kind, target string, data []byte) string {
 	if h.ephemeral == nil {
 		return ""

@@ -28,10 +28,10 @@ func New(rpm int, burst int) *Limiter {
 	return l
 }
 
-// NewPerHour is New's per-hour equivalent: rpm's minimum expressible rate
-// is 1/minute, which can't represent sub-minute-per-request limits like
-// "10 per hour" without truncating to 0 (int) and permanently blocking
-// every caller once their initial burst is spent.
+// New's rpm is an int whose minimum expressible rate is 1/minute, which
+// can't represent sub-minute-per-request limits like "10 per hour" without
+// truncating to 0 and permanently blocking every caller once their initial
+// burst is spent.
 func NewPerHour(rph int, burst int) *Limiter {
 	l := &Limiter{
 		entries: make(map[string]*entry),

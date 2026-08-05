@@ -20,10 +20,8 @@ const (
 
 var ErrAtCapacity = errors.New("report: at capacity")
 
-// Report is a promoted, frozen check result written to disk as its own
-// JSON file, one per report. CapturedAt is stored inside the JSON itself so
-// expiry doesn't depend on file mtime surviving a backup/restore or a
-// touch(1) by an operator.
+// CapturedAt is stored inside the JSON itself so expiry doesn't depend on
+// file mtime surviving a backup/restore or a touch(1) by an operator.
 type Report struct {
 	ID         string          `json:"id"`
 	Kind       string          `json:"kind"`
@@ -32,8 +30,6 @@ type Report struct {
 	Data       json.RawMessage `json:"data"`
 }
 
-// Store persists promoted reports under dir, one JSON file per report,
-// each kept for 24 hours from its captured-at timestamp.
 type Store struct {
 	dir    string
 	active atomic.Int64
@@ -54,9 +50,8 @@ func (s *Store) path(id string) string {
 	return filepath.Join(s.dir, id+".json")
 }
 
-// countActive scans the directory once and returns the number of reports
-// not yet past their 24-hour window. Used at startup (to recover the
-// counter across a restart) and by the sweeper (to self-heal any drift).
+// Used at startup (to recover the counter across a restart) and by the
+// sweeper (to self-heal any drift).
 func (s *Store) countActive() int {
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -83,10 +78,9 @@ func (s *Store) countActive() int {
 	return n
 }
 
-// Promote writes a new report to disk under a freshly generated ID and
-// returns it. It rejects the write outright — never evicting an existing
-// report to make room — once the global active cap is reached, since an
-// existing report may be an active link someone is sharing right now.
+// Rejects the write outright — never evicting an existing report to make
+// room — once the global active cap is reached, since an existing report
+// may be an active link someone is sharing right now.
 func (s *Store) Promote(kind, target string, data json.RawMessage) (string, error) {
 	s.mu.Lock()
 	if s.active.Load() >= maxActiveTotal {
@@ -130,8 +124,8 @@ func (s *Store) Promote(kind, target string, data json.RawMessage) (string, erro
 	return id, nil
 }
 
-// Get reads a report by ID. id must already be validated with ValidID by
-// the caller before it is ever used to build a path.
+// id must already be validated with ValidID by the caller before it is
+// ever used to build a path.
 func (s *Store) Get(id string) (*Report, bool) {
 	if !ValidID(id) {
 		return nil, false
