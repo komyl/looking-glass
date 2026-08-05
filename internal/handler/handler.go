@@ -111,9 +111,14 @@ func (h *Handler) cleanupIPSem() {
 	}
 }
 
-// Confirmed via live packet capture against WCDN/ParsPack on 2026-08-05:
-// X-Forwarded-For always ends with [real client IP], [CDN hop IP] appended
-// by the CDN itself, regardless of what a client sends before them.
+// Client IP for rate limiting and the "Your IP" display is taken from the
+// second-from-last entry of X-Forwarded-For if it has at least two
+// comma-separated entries, falling back to X-Real-IP, then RemoteAddr.
+// This deployment sits behind a CDN confirmed (via packet capture) to
+// always append exactly two trusted entries — [real client IP], [CDN's own
+// hop IP] — regardless of what a client sends before them, so the
+// second-from-last entry is the CDN's own observation and cannot be
+// forged by prefixing extra values onto the header.
 func clientIP(r *http.Request) string {
 	if v := r.Header.Get("X-Forwarded-For"); v != "" {
 		parts := strings.Split(v, ",")
