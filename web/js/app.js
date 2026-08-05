@@ -126,6 +126,7 @@ function runPingAll() {
     fetch('/api/ping-all?target=' + encodeURIComponent(target))
         .then(r => r.json())
         .then(data => {
+            lastRequestId.ping = data.request_id || null;
             (data.results || []).forEach(r => {
                 const row = document.getElementById('ping-row-' + r.id);
                 if (!row) return;
@@ -163,6 +164,8 @@ function runTrace() {
         ? '/api/proxy?node=' + trNode + '&action=traceroute&target=' + encodeURIComponent(target) + '&maxhops=' + maxhops
         : '/api/traceroute?target=' + encodeURIComponent(target) + '&maxhops=' + maxhops;
     trES = new EventSource(trURL);
+    lastRequestId.traceroute = null;
+    trES.addEventListener('request_id', e => { lastRequestId.traceroute = e.data });
     trES.onmessage = e => {
         if (e.data === '[DONE]') { stopTrace('ok'); return }
         if (e.data.startsWith('[ERROR]')) { out.innerHTML += `<span class="t-err">${esc(e.data.slice(7).trim())}</span>\n`; stopTrace('err'); return }
@@ -192,6 +195,8 @@ function runDig() {
     setStatus('dig', 'run', 'Looking up...');
     document.getElementById('dig-run').disabled = true;
     digES = new EventSource('/api/dig?target=' + encodeURIComponent(target) + '&qtype=' + qtype);
+    lastRequestId.dig = null;
+    digES.addEventListener('request_id', e => { lastRequestId.dig = e.data });
     digES.onmessage = e => {
         if (e.data === '[DONE]') {
             if (digES) { digES.close(); digES = null; }
@@ -289,6 +294,7 @@ function runBGP() {
         .then(r => r.json())
         .then(data => {
             if (data.error) { setStatus('bgp', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(data.error)}</span>`; return }
+            lastRequestId.bgp = data.request_id || null;
             const cnt = data.count || 0;
             setStatus('bgp', 'ok', cnt === 0 ? 'No routes found' : cnt + ' route' + (cnt > 1 ? 's' : '') + ' found');
             renderBGP(data, type);
@@ -388,6 +394,7 @@ function runSSL() {
         .then(r => r.json())
         .then(d => {
             if (d.error && !d.subject) { setStatus('ssl', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(d.error)}</span>`; return }
+            lastRequestId.ssl = d.request_id || null;
             const valid = d.valid;
             setStatus('ssl', valid ? 'ok' : 'err', valid ? 'Valid' : 'Invalid');
             const badge = valid ? `<span style="color:var(--green);font-weight:700">Valid</span>` : `<span style="color:var(--red);font-weight:700">Invalid</span>`;
@@ -422,6 +429,7 @@ function runPort() {
         .then(r => r.json())
         .then(d => {
             if (d.error && !d.status) { setStatus('port', 'err', 'Error'); out.innerHTML = `<span class="t-err">${esc(d.error)}</span>`; return }
+            lastRequestId.port = d.request_id || null;
             const color = d.status === 'open' ? 'var(--green)' : d.status === 'closed' ? 'var(--red)' : 'var(--yellow)';
             const badge = `<span style="color:${color};font-weight:700;font-size:16px;text-transform:uppercase">${esc(d.status)}</span>`;
             const latency = d.latency_ms != null ? `<div class="rattr"><div class="rattr-k">Latency</div><div class="rattr-v" style="color:var(--green)">${d.latency_ms} ms</div></div>` : '';
@@ -439,6 +447,164 @@ ${latency}${errRow}
 }
 document.getElementById('port-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
 document.getElementById('port-port').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
+
+const lastRequestId = { ping: null, traceroute: null, dig: null, port: null, ssl: null, bgp: null };
+const KIND_TAB = { 'ping-all': 'ping', ping: 'ping', traceroute: 'traceroute', dns: 'dig', portcheck: 'port', ssl: 'ssl', bgp: 'bgp' };
+const TAB_OUT = { ping: 'ping-out', traceroute: 'tr-out', dig: 'dig-out', port: 'port-out', ssl: 'ssl-out', bgp: 'bgp-out' };
+const TAB_STATUS = { ping: 'ping', traceroute: 'tr', dig: 'dig', port: 'port', ssl: 'ssl', bgp: 'bgp' };
+
+function flashBtn(btn, text) {
+    if (!btn) return;
+    const original = btn.textContent;
+    btn.textContent = text;
+    setTimeout(() => { if (btn) btn.textContent = original }, 1800);
+}
+
+function makePermanent(btn) {
+    const activeTab = document.querySelector('.tab.active');
+    if (!activeTab) return;
+    const tabName = activeTab.id.replace('tab-', '');
+    const reqId = lastRequestId[tabName];
+    if (!reqId) { flashBtn(btn, 'Run a check first'); return }
+    if (btn) btn.disabled = true;
+    fetch('/api/report/promote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_id: reqId })
+    })
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+            if (btn) btn.disabled = false;
+            if (!ok || !data.id) { flashBtn(btn, data.error || 'Failed'); return }
+            const url = new URL(location.href);
+            url.search = '';
+            url.searchParams.set('tab', tabName);
+            url.searchParams.set('report', data.id);
+            navigator.clipboard.writeText(url.toString()).then(() => flashBtn(btn, 'Copied!'));
+        })
+        .catch(() => { if (btn) btn.disabled = false; flashBtn(btn, 'Failed') });
+}
+
+function frozenBanner(capturedAt) {
+    const d = new Date(capturedAt);
+    const when = isNaN(d) ? capturedAt : d.toLocaleString();
+    return `<div class="frozen-notice">Frozen result — captured ${esc(when)}. This is a permanent snapshot, not a live check.</div>`;
+}
+
+function renderFrozenSSL(d, target) {
+    const valid = d.valid;
+    const badge = valid ? `<span style="color:var(--green);font-weight:700">Valid</span>` : `<span style="color:var(--red);font-weight:700">Invalid</span>`;
+    const warn = d.error ? `<div class="rattr wide"><div class="rattr-k">Warning</div><div class="rattr-v" style="color:var(--red)">${esc(d.error)}</div></div>` : '';
+    const daysColor = d.days_left < 30 ? 'var(--red)' : d.days_left < 60 ? 'var(--yellow)' : 'var(--green)';
+    const sans = (d.sans || []).map(s => `<span class="comm-tag">${esc(s)}</span>`).join(' ') || '-';
+    return `<div class="rcard">
+<div class="rprefix">${badge} &nbsp;${esc(target)}</div>
+<div class="rattrs">
+${warn}
+<div class="rattr"><div class="rattr-k">Subject</div><div class="rattr-v">${esc(d.subject || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Issuer</div><div class="rattr-v">${esc(d.issuer || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Not Before</div><div class="rattr-v">${esc(d.not_before || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Not After</div><div class="rattr-v">${esc(d.not_after || '-')}</div></div>
+<div class="rattr"><div class="rattr-k">Days Left</div><div class="rattr-v" style="color:${daysColor};font-weight:700">${d.days_left ?? '-'}</div></div>
+<div class="rattr wide"><div class="rattr-k">SANs</div><div class="rattr-v">${sans}</div></div>
+</div></div>`;
+}
+
+function renderFrozenPort(d) {
+    const color = d.status === 'open' ? 'var(--green)' : d.status === 'closed' ? 'var(--red)' : 'var(--yellow)';
+    const badge = `<span style="color:${color};font-weight:700;font-size:16px;text-transform:uppercase">${esc(d.status)}</span>`;
+    const latency = d.latency_ms != null ? `<div class="rattr"><div class="rattr-k">Latency</div><div class="rattr-v" style="color:var(--green)">${d.latency_ms} ms</div></div>` : '';
+    const errRow = d.error ? `<div class="rattr wide"><div class="rattr-k">Detail</div><div class="rattr-v" style="color:var(--muted2)">${esc(d.error)}</div></div>` : '';
+    return `<div class="rcard">
+<div class="rprefix">${badge}</div>
+<div class="rattrs">
+<div class="rattr"><div class="rattr-k">Target</div><div class="rattr-v">${esc(d.target)}</div></div>
+<div class="rattr"><div class="rattr-k">Port</div><div class="rattr-v">${esc(String(d.port))}</div></div>
+${latency}${errRow}
+</div></div>`;
+}
+
+function renderFrozenPingAll(data) {
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
+<th style="text-align:left;padding:8px 10px">Node</th>
+<th style="text-align:center;padding:8px 10px">Sent/Recv</th>
+<th style="text-align:center;padding:8px 10px">Loss</th>
+<th style="text-align:right;padding:8px 10px">RTT min/avg/max</th>
+<th style="text-align:center;padding:8px 10px">Status</th>
+</tr></thead><tbody>`;
+    (data.results || []).forEach(r => {
+        const statusColor = r.status === 'ok' ? 'var(--green)' : r.status === 'degraded' ? 'var(--yellow)' : 'var(--red)';
+        const statusText = r.status === 'ok' ? 'OK' : r.status === 'degraded' ? 'Degraded' : r.status === 'down' ? 'Down' : 'Error';
+        const lossColor = r.loss === 0 ? 'var(--green)' : r.loss < 50 ? 'var(--yellow)' : 'var(--red)';
+        html += `<tr style="border-bottom:1px solid var(--bdr2)">
+<td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(r.name)}</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">${r.error ? '—' : `${r.sent} / ${r.received}`}</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">${r.error ? '—' : `<span style="color:${lossColor}">${esc(r.loss)}%</span>`}</td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">${r.error ? esc(r.error) : `${r.rtt_min} / ${r.rtt_avg} / ${r.rtt_max} ms`}</td>
+<td style="padding:10px 10px;text-align:center"><span style="color:${statusColor};font-weight:700;font-size:12px">${esc(statusText)}</span></td>
+</tr>`;
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
+function loadReport(tab, id) {
+    fetch('/api/report?id=' + encodeURIComponent(id))
+        .then(r => {
+            if (!r.ok) return r.json().then(d => { throw new Error(d.error || 'report not found or expired') });
+            return r.json();
+        })
+        .then(rep => {
+            const destTab = KIND_TAB[rep.kind] || tab || 'ping';
+            switchTab(destTab);
+            const out = document.getElementById(TAB_OUT[destTab]);
+            const statusId = TAB_STATUS[destTab];
+            if (!out) return;
+            if (statusId) setStatus(statusId, 'ok', 'Frozen result');
+            const banner = frozenBanner(rep.captured_at);
+            const d = rep.data || {};
+
+            if (rep.kind === 'bgp') {
+                document.getElementById('bgp-query').value = rep.target;
+                if (d.type) document.getElementById('bgp-type').value = d.type;
+                renderBGP(d, d.type || document.getElementById('bgp-type').value);
+                out.innerHTML = banner + out.innerHTML;
+            } else if (rep.kind === 'ssl') {
+                document.getElementById('ssl-target').value = rep.target;
+                out.innerHTML = banner + renderFrozenSSL(d, rep.target);
+            } else if (rep.kind === 'portcheck') {
+                document.getElementById('port-target').value = d.target || rep.target;
+                if (d.port) document.getElementById('port-port').value = d.port;
+                out.innerHTML = banner + renderFrozenPort(d);
+            } else if (rep.kind === 'ping-all') {
+                document.getElementById('ping-target').value = rep.target;
+                out.innerHTML = banner + renderFrozenPingAll(d);
+            } else if (rep.kind === 'dns') {
+                document.getElementById('dig-target').value = d.target || rep.target;
+                if (d.qtype) document.getElementById('dig-qtype').value = d.qtype;
+                digLines = d.lines || [];
+                renderDNS(out, d.target || rep.target, d.qtype || 'A');
+                out.innerHTML = banner + out.innerHTML;
+            } else if (rep.kind === 'traceroute') {
+                document.getElementById('tr-target').value = d.target || rep.target;
+                if (d.maxhops) document.getElementById('tr-hops').value = d.maxhops;
+                out.innerHTML = banner;
+                traceLines.length = 0;
+                (d.lines || []).forEach(l => enrichTraceLine(l, out));
+            } else if (rep.kind === 'ping') {
+                document.getElementById('ping-target').value = d.target || rep.target;
+                out.innerHTML = banner + '<pre style="white-space:pre-wrap">' + (d.lines || []).map(l => highlight(l)).join('\n') + '</pre>';
+            } else {
+                out.innerHTML = banner + '<span class="ph">Unknown report type</span>';
+            }
+        })
+        .catch(err => {
+            switchTab(tab || 'ping');
+            const out = document.getElementById(TAB_OUT[tab] || 'ping-out');
+            if (out) out.innerHTML = `<span class="t-err">${esc(err.message)}</span>`;
+        });
+}
 
 function copyShareLink(btn) {
     const activeTab = document.querySelector('.tab.active');
@@ -509,6 +675,8 @@ function loadFromURL() {
     const p = new URLSearchParams(location.search);
     const tab = p.get('tab');
     if (tab) switchTab(tab);
+    const reportId = p.get('report');
+    if (reportId) { loadReport(tab, reportId); return }
     const target = p.get('t') || p.get('target');
     const run = p.get('run') === '1';
     if (tab === 'dig' && target) {
