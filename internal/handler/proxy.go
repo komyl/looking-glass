@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -136,6 +137,15 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if action == "ping" || action == "traceroute" {
+		h.streamProxyWithCapture(w, r, flusher, resp, action, target)
+		return
+	}
+
+	// action == "portcheck": this generic proxy path is unused by the
+	// frontend (the Port tab calls /api/portcheck, which is captured
+	// separately in PortCheck) — preserved exactly as before, raw byte
+	// passthrough, no Permanent Link capture.
 	buf := make([]byte, 4096)
 	for {
 		select {
@@ -151,6 +161,40 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+	}
+}
+
+// streamProxyWithCapture relays an agent's already-SSE-formatted ping/
+// traceroute stream line by line (mirroring Ping/Traceroute's own
+// exec.Command-based streaming) instead of copying raw bytes, so it can
+// inject the initial request_id event and capture the finished transcript
+// once the stream reaches its own [DONE]/[ERROR] sentinel. Nothing is
+// captured on early client disconnect — there is no finished result yet.
+func (h *Handler) streamProxyWithCapture(w http.ResponseWriter, r *http.Request, flusher http.Flusher, resp *http.Response, kind, target string) {
+	capture := beginCapture(w, flusher)
+	finished := false
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+		content, ok := strings.CutPrefix(scanner.Text(), "data: ")
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(w, "data: %s\n\n", content)
+		flusher.Flush()
+		switch {
+		case content == "[DONE]", strings.HasPrefix(content, "[ERROR]"):
+			finished = true
+		default:
+			capture.add(content)
+		}
+	}
+	if finished {
+		h.finishCapture(capture, kind, target, nil)
 	}
 }
 
@@ -228,9 +272,23 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	io.Copy(w, resp.Body)
+	if err != nil {
+		writeError(w, "agent unreachable", http.StatusBadGateway)
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		// Not JSON we can annotate — forward exactly as received, same as before.
+		w.Write(body)
+		return
+	}
+	if id := h.captureJSON("portcheck", target, body); id != "" {
+		payload["request_id"] = id
+	}
+	json.NewEncoder(w).Encode(payload)
 }
 func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
@@ -334,5 +392,11 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	wg.Wait()
-	writeJSON(w, map[string]any{"target": target, "results": results})
+	resp := map[string]any{"target": target, "results": results}
+	if data, err := json.Marshal(resp); err == nil {
+		if id := h.captureJSON("ping-all", target, data); id != "" {
+			resp["request_id"] = id
+		}
+	}
+	writeJSON(w, resp)
 }
