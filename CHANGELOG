@@ -1,5 +1,16 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 1.0 (2026-08-05)
+feature:
+  - report: add server-authoritative "Permanent Link" — freezes the actual result a check produced and serves it back from a stored copy for 24 hours, via new `POST /api/report/promote` and `GET /api/report` endpoints
+  - handler: every check response (ping, ping-all, traceroute, portcheck, dns, ssl, bgp) now carries a `request_id` — a JSON field for request/response endpoints, an initial named SSE event (sent before any hop/result data) for the streaming ones — used to promote that specific result to a permanent report
+  - bgp: `/api/bgp` response now also includes the normalized lookup `type` (`ip`, `prefix`, or `asn`)
+  - main: new `REPORTS_DIR` environment variable (default `/var/lib/looking-glass/reports`) for where promoted reports are stored, following the existing `GEOIP_PATH` convention
+security:
+  - report: `/api/report/promote` is gated by its own 10-per-hour-per-IP limiter, independent of the general token bucket and the subprocess semaphores — a disk write is a different resource than a probe execution and needed its own dimension
+  - report: both the ephemeral request ID and the promoted report ID are crypto/rand, 160-bit, fixed-length/charset, and validated before ever being used to build a filesystem path — the report ID becomes part of a public, unauthenticated URL
+  - report: the persisted report store rejects new promotions outright once 2000 reports are active rather than evicting the oldest, since an existing report may be a link someone is actively sharing right now
+
 version 0.9 (2026-08-01)
 fixes:
   - handler: fix /api/ssl to parse host:port and ip:port directly from `target` (default port 443) instead of a separate `port` query param — the documented syntax was rejected by validator.ValidateTarget's hostname regex before ever reaching SSLCheck's splitting logic, making that logic dead code since day one; a dedicated field for a rarely-used option added UX friction for no benefit

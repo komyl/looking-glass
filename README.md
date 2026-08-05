@@ -23,6 +23,7 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 - BGP route lookup — IP, prefix, ASN; enriched with GeoIP and AS operator names
 - AS path rendered as directed chain: `AS34549 (meerfarbig) → AS15169 (Google LLC)`
 - Shareable results — "Copy Link" button available on all tools. Generated links can auto-run the check when opened (`run=1`)
+- Permanent Link — freezes the actual result a check produced and serves it back, read-only, from a stored copy for 24 hours
 
 ## Source layout
 

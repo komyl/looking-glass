@@ -14,6 +14,7 @@ The following are considered in scope:
 - Authentication bypass on agent endpoints
 - Information disclosure of internal network topology via error messages
 - Rate limiting bypass
+- Path traversal or arbitrary file read via the Permanent Link report ID
 
 ## Out of scope
 

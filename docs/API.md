@@ -40,7 +40,11 @@ Public metadata for all registered nodes. Internal URLs and secrets are never in
 
 SSE stream, single node. Params: `target` (required), `count` (1–20, default 5).
 
-Each event carries one line of ping output. Stream ends with `data: [DONE]` or `data: [ERROR] <message>`.
+The first event is a named `request_id` event (`event: request_id`),
+sent before any ping output, carrying the ID needed to promote this
+result via `/api/report/promote`. Each following (default, unnamed) event
+carries one line of ping output. Stream ends with `data: [DONE]` or
+`data: [ERROR] <message>`.
 
 ---
 
@@ -57,17 +61,23 @@ Params: `target` (required).
     {"id":"node1","name":"Tehran — ISP","isp":"ISP",
      "sent":4,"received":4,"loss":0,
      "rtt_min":0.7,"rtt_avg":0.8,"rtt_max":0.9,"status":"ok"}
-  ]
+  ],
+  "request_id": "6e6f7f0263404ec8d7e06885af9290b7ba128b1a"
 }
 ```
 
 Status: `ok`, `degraded` (partial loss), `down` (100% loss), `error` (unreachable).
+
+`request_id` promotes this result via `/api/report/promote` (`kind: "ping-all"`).
 
 ---
 
 ### GET /api/traceroute
 
 SSE stream, single node. Params: `target` (required), `maxhops` (5–64, default 30).
+
+Same `request_id` event convention as `/api/ping`: a named `request_id`
+event first, before any hop line.
 
 ---
 
@@ -76,6 +86,12 @@ SSE stream, single node. Params: `target` (required), `maxhops` (5–64, default
 Proxies ping, traceroute, or portcheck from a specific agent.
 
 Params: `node` (required), `action` (`ping`, `traceroute`, or `portcheck`), `target`, and one action-specific param: `count` for ping, `maxhops` for traceroute, `port` for portcheck.
+
+For `action=ping` and `action=traceroute`, the same `request_id` SSE event
+convention applies (first event, before any hop line), and the result is
+promotable the same way as the non-proxied endpoints above. `action=portcheck`
+through this endpoint does **not** get a `request_id` — see
+`/api/portcheck` below for the portcheck path that does.
 
 ---
 
@@ -86,10 +102,13 @@ TCP port check via a specific agent. `http://` and `https://` prefixes are strip
 Params: `node`, `target`, `port` (1–65535) — all required.
 
 ```json
-{"target":"example.ir","port":443,"status":"open","latency_ms":12}
+{"target":"example.ir","port":443,"status":"open","latency_ms":12,"request_id":"..."}
 ```
 
 Status: `open`, `closed` (refused), `filtered` (timeout).
+
+`request_id` promotes this result via `/api/report/promote` (`kind:
+"portcheck"`). Omitted if the agent's response couldn't be parsed as JSON.
 
 ---
 
@@ -103,6 +122,11 @@ Status: `open`, `closed` (refused), `filtered` (timeout).
 **Behavior:**
 Returns summarized results instead of raw `dig` output.  
 Each record shows how many resolvers returned it.
+
+The first event is a named `request_id` event, sent before any record
+line, promotable via `/api/report/promote` (`kind: "dns"`). Only the
+summarized record/summary lines are captured for promotion — per-resolver
+`debug=1` status lines are not part of the stored result.
 
 **Example response lines:**
 example.com. IN A 93.184.216.34   (found on 12 resolvers)
@@ -125,9 +149,12 @@ Params: `target` — hostname, IP, host:port, or ip:port (default port 443).
   "not_before": "2026-01-01 00:00:00 UTC",
   "not_after":  "2026-04-01 00:00:00 UTC",
   "days_left":  42,
-  "sans": ["*.example.ir","example.ir"]
+  "sans": ["*.example.ir","example.ir"],
+  "request_id": "a37ec32ba3ea8ae2b302ade9ee0d44770c77cf14"
 }
 ```
+
+`request_id` promotes this result via `/api/report/promote` (`kind: "ssl"`).
 
 ---
 
@@ -139,6 +166,7 @@ Params: `type` (`ip`, `prefix`, or `asn`), `query` (IP, CIDR, or ASN).
 
 ```json
 {
+  "type": "ip",
   "count": 1,
   "routes": [
     {
@@ -157,11 +185,12 @@ Params: `type` (`ip`, `prefix`, or `asn`), `query` (IP, CIDR, or ASN).
   "aspath_enriched": [
     {"asn":34549,"name":"meerfarbig GmbH & Co. KG","domain":"meerfarbig.net"},
     {"asn":15169,"name":"Google LLC","domain":"google.com"}
-  ]
+  ],
+  "request_id": "82621ff66c895fc6d5f0be4137024217e4db5535"
 }
 ```
 
-`geo` and `aspath_enriched` present only for `type=ip` when GeoIP is loaded. ASN lookup capped at 1000 routes.
+`geo` and `aspath_enriched` present only for `type=ip` when GeoIP is loaded. ASN lookup capped at 1000 routes. `type` echoes the normalized (lowercased) lookup type. `request_id` promotes this result via `/api/report/promote` (`kind: "bgp"`).
 
 ---
 
@@ -176,6 +205,83 @@ Params: `targets` (required, comma-separated, capped at 50 per request).
 ```
 
 Returns `{}` if no GeoIP database is loaded.
+
+---
+
+### POST /api/report/promote
+
+Turns a still-live ephemeral check result into a permanent, disk-backed
+report — the server side of the "Permanent Link" feature. See
+`docs/ARCHITECTURE.md` ("Permanent Link reports") for the ephemeral-cache/
+persisted-store design behind this.
+
+Body (JSON, capped at 4096 bytes):
+
+```json
+{"request_id": "9d2955511297001b4274dbeb86efe3f467b3c486"}
+```
+
+`request_id` is the value returned by a prior check — the `request_id`
+field on a JSON response, or the initial `request_id` SSE event on a
+streaming one.
+
+Success:
+
+```json
+{"id": "3ca708fe93e0ae6495e168ceb8638e59ae429492"}
+```
+
+Gated by a dedicated per-IP limiter — 10 requests/hour, burst 3 —
+independent of the general token bucket every other endpoint shares.
+
+| Code | Body | Trigger |
+|---|---|---|
+| 400 | `{"error":"invalid request body"}` | body is not valid JSON |
+| 400 | `{"error":"invalid request id"}` | `request_id` is not a 40-character lowercase-hex string |
+| 429 | `{"error":"too many permanent links requested — try again later"}` | promote's own 10/hour-per-IP limit reached |
+| 404 | `{"error":"this result is no longer available to make permanent — please re-run the check"}` | `request_id` is unknown, or its 30-minute ephemeral window has passed |
+| 503 | `{"error":"too many active shared links right now — please try again later"}` | 2000 reports are already active on disk (rejected outright, nothing is evicted) |
+| 500 | `{"error":"failed to save permanent link"}` | writing the report to disk failed |
+| 503 | `{"error":"permanent links are unavailable"}` | `REPORTS_DIR` failed to initialize at startup |
+
+---
+
+### GET /api/report
+
+Fetches a promoted report by ID for rendering. Public and unauthenticated
+by design — the same trust model as any other shareable link.
+
+Params: `id` (required).
+
+```json
+{
+  "id": "3ca708fe93e0ae6495e168ceb8638e59ae429492",
+  "kind": "bgp",
+  "target": "12880",
+  "captured_at": "2026-08-05T02:33:21Z",
+  "data": { "...": "shape depends on kind, see below" }
+}
+```
+
+`kind` is one of `ping`, `ping-all`, `traceroute`, `dns`, `portcheck`,
+`ssl`, `bgp` — whichever check produced the report. `captured_at` is
+RFC 3339, always UTC.
+
+`data`'s shape depends on `kind`:
+
+- `ping-all`, `portcheck`, `ssl`, `bgp` — the same JSON body that check's
+  own live endpoint returns, minus its own `request_id` field.
+- `ping`, `traceroute`, `dns` — these are SSE endpoints live, so there's no
+  JSON body to mirror; `data` is instead `{"target": "...", "lines":
+  ["...", ...], ...}`, the transcript captured while streaming, plus the
+  extra param each carried (`count` for ping, `maxhops` for traceroute,
+  `qtype` for dns).
+
+| Code | Body | Trigger |
+|---|---|---|
+| 404 | `{"error":"report not found or expired"}` | `id` is malformed, unknown, or past its 24-hour window |
+| 429 | `{"error":"rate limited — try again in a minute"}` | the general per-IP token bucket is exhausted (same limiter and message as every other endpoint) |
+| 503 | `{"error":"permanent links are unavailable"}` | `REPORTS_DIR` failed to initialize at startup |
 
 ---
 
