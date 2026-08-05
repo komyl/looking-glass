@@ -19,6 +19,7 @@ import (
 	"looking-glass/internal/bgp"
 	"looking-glass/internal/geoip"
 	"looking-glass/internal/ratelimit"
+	"looking-glass/internal/report"
 	"looking-glass/internal/validator"
 )
 
@@ -44,9 +45,13 @@ type Handler struct {
 	semaphore chan struct{}
 	ipSem     sync.Map
 	resolvers []string
+
+	ephemeral *report.EphemeralCache
+	reports   *report.Store
+	promoteRL *ratelimit.Limiter
 }
 
-func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byte) *Handler {
+func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byte, ephemeral *report.EphemeralCache, reports *report.Store, promoteRL *ratelimit.Limiter) *Handler {
 	resolvers := defaultResolvers
 	if env := os.Getenv("LOOKING_GLASS_RESOLVERS"); env != "" {
 		resolvers = strings.Split(env, ",")
@@ -62,6 +67,9 @@ func New(store *bgp.Store, geo *geoip.DB, rl *ratelimit.Limiter, indexHTML []byt
 		index:     indexHTML,
 		semaphore: make(chan struct{}, 30),
 		resolvers: resolvers,
+		ephemeral: ephemeral,
+		reports:   reports,
+		promoteRL: promoteRL,
 	}
 	go h.cleanupIPSem()
 	return h
@@ -169,6 +177,81 @@ func sseErr(w http.ResponseWriter, f http.Flusher, msg string) {
 	fmt.Fprintf(w, "data: [ERROR] %s\n\n", msg)
 	f.Flush()
 }
+
+// sseEvent writes a named SSE event, distinct from the default unnamed
+// "message" event sseLine/sseDone/sseErr produce — used for the initial
+// request_id event a client's EventSource listens for separately.
+func sseEvent(w http.ResponseWriter, f http.Flusher, event, data string) {
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	f.Flush()
+}
+
+// sseCapture accumulates a streaming check's output so the completed
+// result can be handed to the ephemeral cache once the stream concludes.
+// A nil *sseCapture (ID generation failure) makes add/finish no-ops —
+// Permanent Link becomes unavailable for that one request rather than
+// failing the check itself.
+type sseCapture struct {
+	id    string
+	lines []string
+}
+
+// beginCapture generates a request ID and emits it as the initial SSE
+// event immediately — before any hop/result data — since the client needs
+// it up front to correlate a later Permanent Link click with this run.
+// The ephemeral cache itself is only populated once the check has fully
+// finished, via finish.
+func beginCapture(w http.ResponseWriter, f http.Flusher) *sseCapture {
+	id, err := report.NewID()
+	if err != nil {
+		return nil
+	}
+	sseEvent(w, f, "request_id", id)
+	return &sseCapture{id: id}
+}
+
+func (c *sseCapture) add(line string) {
+	if c == nil {
+		return
+	}
+	c.lines = append(c.lines, line)
+}
+
+// finish stores the accumulated transcript in the ephemeral cache. Only
+// call this once the check has definitively finished (normal completion or
+// an in-stream [ERROR]) — never on an early client disconnect, since there
+// is no full result to remember in that case.
+func (h *Handler) finishCapture(c *sseCapture, kind, target string, extra map[string]any) {
+	if c == nil || h.ephemeral == nil {
+		return
+	}
+	payload := map[string]any{"target": target, "lines": c.lines}
+	for k, v := range extra {
+		payload[k] = v
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	h.ephemeral.Put(c.id, kind, target, data)
+}
+
+// captureJSON generates a request ID for a non-streaming JSON result and
+// stores it in the ephemeral cache, returning the ID for inclusion in the
+// response body. Returns "" (silently skipping capture) on ID generation
+// failure — Permanent Link becomes unavailable for that response rather
+// than failing the check itself.
+func (h *Handler) captureJSON(kind, target string, data []byte) string {
+	if h.ephemeral == nil {
+		return ""
+	}
+	id, err := report.NewID()
+	if err != nil {
+		return ""
+	}
+	h.ephemeral.Put(id, kind, target, data)
+	return id
+}
 func sanitizeErr(err error) string {
 	if err == nil {
 		return ""
@@ -265,6 +348,7 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 		sseErr(w, flusher, "ping failed to start: "+err.Error())
 		return
 	}
+	capture := beginCapture(w, flusher)
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		select {
@@ -273,10 +357,13 @@ func (h *Handler) Ping(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 		}
-		sseLine(w, flusher, scanner.Text())
+		line := scanner.Text()
+		capture.add(line)
+		sseLine(w, flusher, line)
 	}
 	cmd.Wait()
 	sseDone(w, flusher)
+	h.finishCapture(capture, "ping", target, map[string]any{"count": count})
 }
 
 func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
@@ -333,6 +420,7 @@ func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
 		sseErr(w, flusher, "traceroute not available: "+err.Error())
 		return
 	}
+	capture := beginCapture(w, flusher)
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		select {
@@ -341,10 +429,13 @@ func (h *Handler) Traceroute(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 		}
-		sseLine(w, flusher, scanner.Text())
+		line := scanner.Text()
+		capture.add(line)
+		sseLine(w, flusher, line)
 	}
 	cmd.Wait()
 	sseDone(w, flusher)
+	h.finishCapture(capture, "traceroute", target, map[string]any{"maxhops": maxHops})
 }
 
 func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +475,8 @@ func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.releaseIP(ip)
+
+	capture := beginCapture(w, flusher)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
@@ -457,16 +550,24 @@ func (h *Handler) Dig(w http.ResponseWriter, r *http.Request) {
 	wg.Wait()
 
 	if len(answers) == 0 {
-		sseLine(w, flusher, "No record found on any resolver")
+		line := "No record found on any resolver"
+		capture.add(line)
+		sseLine(w, flusher, line)
 	} else {
 		for record, count := range answers {
-			sseLine(w, flusher, fmt.Sprintf("%s   (found on %d resolvers)", record, count))
+			line := fmt.Sprintf("%s   (found on %d resolvers)", record, count)
+			capture.add(line)
+			sseLine(w, flusher, line)
 		}
 	}
 
 	summary := fmt.Sprintf("=== Summary ===\nRecord found on %d out of %d resolvers", successCount, total)
+	for _, l := range strings.Split(summary, "\n") {
+		capture.add(l)
+	}
 	sseLine(w, flusher, summary)
 	sseDone(w, flusher)
+	h.finishCapture(capture, "dns", target, map[string]any{"qtype": qtype})
 }
 
 func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
@@ -544,11 +645,18 @@ func (h *Handler) BGP(w http.ResponseWriter, r *http.Request) {
 			aspathEnriched = append(aspathEnriched, info)
 		}
 	}
-	writeJSON(w, map[string]any{
+	resp := map[string]any{
+		"type":            qtype,
 		"count":           len(enriched),
 		"routes":          enriched,
 		"aspath_enriched": aspathEnriched,
-	})
+	}
+	if data, err := json.Marshal(resp); err == nil {
+		if id := h.captureJSON("bgp", query, data); id != "" {
+			resp["request_id"] = id
+		}
+	}
+	writeJSON(w, resp)
 }
 func (h *Handler) IPInfo(w http.ResponseWriter, r *http.Request) {
 	targets := r.URL.Query().Get("targets")
@@ -653,6 +761,15 @@ func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 		NotAfter  string   `json:"not_after,omitempty"`
 		DaysLeft  int      `json:"days_left,omitempty"`
 		SANs      []string `json:"sans,omitempty"`
+		RequestID string   `json:"request_id,omitempty"`
+	}
+	send := func(res result) {
+		if data, err := json.Marshal(res); err == nil {
+			if id := h.captureJSON("ssl", target, data); id != "" {
+				res.RequestID = id
+			}
+		}
+		writeJSON(w, res)
 	}
 	extractCert := func(conn *tls.Conn) result {
 		certs := conn.ConnectionState().PeerCertificates
@@ -677,16 +794,16 @@ func (h *Handler) SSLCheck(w http.ResponseWriter, r *http.Request) {
 			ServerName:         host,
 		})
 		if err2 != nil {
-			writeJSON(w, result{Valid: false, Error: sanitizeErr(err)})
+			send(result{Valid: false, Error: sanitizeErr(err)})
 			return
 		}
 		defer conn2.Close()
 		res := extractCert(conn2)
 		res.Valid = false
 		res.Error = sanitizeErr(err)
-		writeJSON(w, res)
+		send(res)
 		return
 	}
 	defer conn.Close()
-	writeJSON(w, extractCert(conn))
+	send(extractCert(conn))
 }

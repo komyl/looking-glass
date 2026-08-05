@@ -15,6 +15,7 @@ import (
 	"looking-glass/internal/geoip"
 	"looking-glass/internal/handler"
 	"looking-glass/internal/ratelimit"
+	"looking-glass/internal/report"
 )
 
 //go:embed web
@@ -42,9 +43,17 @@ if g, err := geoip.Open(geoPaths...); err != nil {
 }
 
 	rl := ratelimit.New(20, 5)
+	promoteRL := ratelimit.NewPerHour(10, 3)
 
-	h := handler.New(store, geo, rl, nil)
-	
+	reportsDir := envOr("REPORTS_DIR", "/var/lib/looking-glass/reports")
+	ephemeral := report.NewEphemeralCache()
+	reports, err := report.NewStore(reportsDir)
+	if err != nil {
+		log.Printf("[report] permanent links disabled: %v", err)
+	}
+
+	h := handler.New(store, geo, rl, nil, ephemeral, reports, promoteRL)
+
 	fsys, _ := fs.Sub(webFS, "web")
 
 	mux := http.NewServeMux()
@@ -61,6 +70,8 @@ if g, err := geoip.Open(geoPaths...); err != nil {
 	mux.HandleFunc("GET /api/portcheck", h.PortCheck)
 	mux.HandleFunc("GET /api/ping-all", h.PingAll)
 	mux.HandleFunc("GET /api/ip-info", h.IPInfo)
+	mux.HandleFunc("POST /api/report/promote", h.Promote)
+	mux.HandleFunc("GET /api/report", h.ReportRead)
 
 	srv := &http.Server{
 		Addr:         listenAddr,
