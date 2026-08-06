@@ -44,7 +44,7 @@ Conversion takes 10–15 minutes and produces a ~260 MB JSON file. The service p
 
 ### GeoIP data
 
-Obtain an ipinfo Lite CSV (plain or gzip). Place it at the path configured by `GEOIP_PATH`. See [doc/geoip.md](doc/geoip.md).
+Obtain an ipinfo Lite CSV (plain or gzip). Place it at the path configured by `GEOIP_PATH`. See [docs/GeoIp.md](docs/GeoIp.md).
 
 ### Reports directory (Permanent Link)
 
@@ -210,7 +210,7 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 |--------|-----------------------|------------------------------------|------------------------------------|
 | master | `LISTEN_ADDR`         | `127.0.0.1:8082`                   | TCP bind address                   |
 | master | `BGP_DATA_PATH`       | `/var/lib/looking-glass/bgp.json`  | BGP data file path                 |
-| master | `GEOIP_PATH`          | `/opt/ipinfo/ipinfo_lite.csv.gz`   | Path to ipinfo Lite CSV            |
+| master | `GEOIP_PATH`          | `/var/lib/looking-glass/ipinfo_lite.csv.gz` | Path to ipinfo Lite CSV            |
 | master | `GEOIP_PATH2`         | *(optional)*                       | Second GeoIP CSV (higher priority) |
 | master | `REPORTS_DIR`         | `/var/lib/looking-glass/reports`   | Directory for promoted Permanent Link reports (one JSON file per report, 24h TTL). Service user needs write access. |
 | master | `LOOKING_GLASS_RESOLVERS` | (built-in list)                | DNS resolvers for `/api/dig`       |

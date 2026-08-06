@@ -29,13 +29,12 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 
 ```
 main.go               master entry point
-cmd/agent/            agent binary
-cmd/mrt2json/         offline MRT-to-JSON converter
 internal/bgp/         BGP table: radix trie, JSON loader, hot-reload
 internal/geoip/       ipinfo CSV loader, radix trie, ASN index
 internal/handler/     HTTP handlers and agent proxy
 internal/nodes/       node registry
 internal/ratelimit/   token bucket rate limiter
+internal/report/      ephemeral cache and Permanent Link report store
 internal/validator/   input sanitization
 web/                  frontend assets (embedded at build time)
 web/index.html        main HTML file
@@ -53,10 +52,10 @@ web/js/app.js         frontend logic
 ## Documentation
 
 - [INSTALL.md](INSTALL.md) — build, deploy, nginx, systemd, fail2ban
-- [docs/architecture.md](docs/architecture.md) — system design and decisions
-- [docs/api.md](docs/api.md) — HTTP API reference
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design and decisions
+- [docs/API.md](docs/API.md) — HTTP API reference
 - [docs/bgp-data.md](docs/bgp-data.md) — MRT format, conversion, update process
-- [docs/Geoip.md](docs/GeoIp.md) — ipinfo CSV setup
+- [docs/GeoIp.md](docs/GeoIp.md) — ipinfo CSV setup
 - [CONTRIBUTING.md](CONTRIBUTING.md) — adding nodes, contributing patches
 - [CHANGELOG](CHANGELOG) — version history
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities
