@@ -14,6 +14,7 @@ import (
 	"looking-glass/internal/bgp"
 	"looking-glass/internal/geoip"
 	"looking-glass/internal/handler"
+	"looking-glass/internal/nodes"
 	"looking-glass/internal/ratelimit"
 	"looking-glass/internal/report"
 )
@@ -27,6 +28,7 @@ func main() {
 
 	store := bgp.NewStore(bgpPath)
 	store.Start()
+	nodes.StartHealthChecker()
 
 	var geo *geoip.DB
 geoPaths := []string{
