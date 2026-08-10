@@ -48,9 +48,7 @@ func newLiveness() *liveness {
 	return l
 }
 
-// StartHealthChecker runs a background goroutine for the life of the
-// process, polling every agent's /health endpoint on a fixed ticker.
-// It is never triggered by an incoming user request.
+// StartHealthChecker is never triggered by an incoming user request.
 func StartHealthChecker() {
 	go func() {
 		checkAll()
@@ -112,15 +110,13 @@ func (l *liveness) recordSuccess(id string) {
 	l.live[id] = true
 }
 
-// IsLive reports whether node id passed its most recent health check.
 func IsLive(id string) bool {
 	lv.mu.RLock()
 	defer lv.mu.RUnlock()
 	return lv.live[id]
 }
 
-// LiveNodes returns the currently-reachable nodes, in the same order as
-// List.
+// LiveNodes preserves List's order.
 func LiveNodes() []Node {
 	lv.mu.RLock()
 	defer lv.mu.RUnlock()
