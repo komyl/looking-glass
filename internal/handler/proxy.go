@@ -23,7 +23,7 @@ func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
 		Location string `json:"location"`
 	}
 	var pub []publicNode
-	for _, n := range nodes.List {
+	for _, n := range nodes.LiveNodes() {
 		pub = append(pub, publicNode{
 			ID:       n.ID,
 			Name:     n.Name,
@@ -82,6 +82,11 @@ func (h *Handler) Proxy(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := sseHeaders(w)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	if !nodes.IsLive(node.ID) {
+		sseErr(w, flusher, "agent unreachable")
 		return
 	}
 
@@ -232,6 +237,10 @@ func (h *Handler) PortCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "unknown node", http.StatusBadRequest)
 		return
 	}
+	if !nodes.IsLive(node.ID) {
+		writeError(w, "agent unreachable", http.StatusBadGateway)
+		return
+	}
 
 	select {
 	case h.semaphore <- struct{}{}:
@@ -313,8 +322,9 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 		Status   string  `json:"status"`
 	}
 
-	results := make([]nodeResult, len(nodes.List))
-	for i, n := range nodes.List {
+	liveNodes := nodes.LiveNodes()
+	results := make([]nodeResult, len(liveNodes))
+	for i, n := range liveNodes {
 		results[i] = nodeResult{ID: n.ID, Name: n.Name, Status: "pending"}
 	}
 
@@ -331,7 +341,7 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	const maxConcurrentAgents = 8
 	sem := make(chan struct{}, maxConcurrentAgents)
 	var wg sync.WaitGroup
-	for i, n := range nodes.List {
+	for i, n := range liveNodes {
 		wg.Add(1)
 		go func(idx int, node nodes.Node) {
 			defer wg.Done()
