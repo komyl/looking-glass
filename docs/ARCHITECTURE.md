@@ -51,9 +51,46 @@ WebSocket was evaluated and rejected: it requires a connection upgrade, adds bid
 
 ## Multi-node ping
 
-The `/api/ping-all` endpoint fans out to all registered agents in parallel using goroutines, bounded to 8 concurrent agent requests at a time. Each agent executes `ping -c 4`, parses the output, and returns structured JSON (`sent`, `received`, `loss`, `rtt_min`, `rtt_avg`, `rtt_max`). The master waits for all goroutines to complete and returns a single JSON response. The UI renders results as a table that populates when the response arrives.
+The `/api/ping-all` endpoint fans out to all currently-live agents (see "Agent liveness" below) in parallel using goroutines, bounded to 8 concurrent agent requests at a time. Each agent executes `ping -c 4`, parses the output, and returns structured JSON (`sent`, `received`, `loss`, `rtt_min`, `rtt_avg`, `rtt_max`). The master waits for all goroutines to complete and returns a single JSON response. The UI renders results as a table that populates when the response arrives.
 
 The original ping implementation streamed output from a single selected node via SSE, mirroring traceroute. This was replaced because the parallel table view is more useful for network diagnostics — it shows relative performance across ISPs in a single request.
+
+---
+
+## Agent liveness
+
+A background goroutine, started once from `main.go` alongside the BGP
+store's own goroutine, polls every registered agent's `/health` endpoint
+every 12 seconds with a 3-second per-check timeout, using the same
+`X-Agent-Secret` header as every other master→agent call but a dedicated
+`http.Client` — so a slow or dead agent's health check never adds latency
+to a real `Proxy`/`PortCheck`/`PingAll` request. Only the HTTP status is
+checked; the response body is never parsed or trusted.
+
+A node is marked dead after 2 consecutive failed checks, and live again
+after a single successful one — fast recovery is intentional, since a
+node flapping back should rejoin node lists and `PingAll` immediately
+rather than waiting out a longer confirmation window. At startup, before
+the first check round completes, every node is treated as live; otherwise
+every node list would be empty for the first 12 seconds after every
+restart.
+
+This state lives in `internal/nodes` as a separate ID-keyed tracker
+(`IsLive(id string) bool`, `LiveNodes() []Node`), not as a field on `Node`
+itself: `PingAll` ranges over `nodes.List` and passes `Node` by value into
+per-node goroutines (`go func(idx int, node nodes.Node)`), so a mutable
+field on `Node` would be copied at fan-out time and never observe a later
+update from the checker.
+
+Consumers: `Handler.Nodes` (`GET /api/nodes`) returns `nodes.LiveNodes()`
+instead of `nodes.List` — dead nodes are simply absent, with no change to
+the public response shape. `Handler.PingAll` fans out only to
+`nodes.LiveNodes()` — a dead node gets no entry in `results` at all, not
+an `"status": "error"` row. `Handler.Proxy` and `Handler.PortCheck` check
+`nodes.IsLive(node.ID)` immediately after the node lookup succeeds and,
+if false, return the same `"agent unreachable"` error already returned on
+a real connection failure, without attempting the actual agent request or
+waiting out its full timeout (130s for `Proxy`, 10s for `PortCheck`).
 
 ---
 

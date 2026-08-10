@@ -1,5 +1,12 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 1.1 (2026-08-10)
+feature:
+  - nodes: add background agent-liveness tracking — a goroutine polls every agent's `/health` endpoint every 12s (3s timeout, dedicated http.Client), marking a node dead after 2 consecutive failures and live again after 1 success; all nodes are optimistically treated as live until the first check round completes
+  - handler: `/api/nodes` now returns `nodes.LiveNodes()` instead of the full static list — an unreachable agent is simply omitted, not flagged with a status field
+  - proxy: `/api/ping-all` fans out only to live nodes — a dead node gets no entry in `results`, not a `status: "error"` row
+  - proxy: `/api/proxy` and `/api/portcheck` check liveness immediately after the node lookup and fail fast with the existing "agent unreachable" error instead of waiting out the full agent-call timeout (130s / 10s) against a node already known to be dead
+
 version 1.0 (2026-08-05)
 feature:
   - report: add server-authoritative "Permanent Link" — freezes the actual result a check produced and serves it back from a stored copy for 24 hours, via new `POST /api/report/promote` and `GET /api/report` endpoints

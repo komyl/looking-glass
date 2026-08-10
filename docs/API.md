@@ -28,7 +28,7 @@ BGP store statistics.
 
 ### GET /api/nodes
 
-Public metadata for all registered nodes. Internal URLs and secrets are never included.
+Public metadata for all currently-reachable nodes. Internal URLs and secrets are never included. A node that fails its background health check (see `docs/ARCHITECTURE.md` "Agent liveness") is omitted until it recovers — there is no status field marking it dead, it simply isn't in the list.
 
 ```json
 [{"id": "node1", "name": "Tehran — ISP", "location": "Tehran", "isp": "ISP Name"}]
@@ -50,7 +50,7 @@ carries one line of ping output. Stream ends with `data: [DONE]` or
 
 ### GET /api/ping-all
 
-All nodes in parallel. Returns when all respond or time out.
+All currently-reachable nodes in parallel (see `docs/ARCHITECTURE.md` "Agent liveness") — a node that's been marked dead by the background health check gets no entry in `results` at all, not an `error` row. Returns when all respond or time out.
 
 Params: `target` (required).
 
