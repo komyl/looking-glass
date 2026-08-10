@@ -17,9 +17,17 @@ const (
 	deadAfterMisses     = 2
 )
 
-// Dedicated client for health checks — never shared with Proxy, PortCheck,
-// or PingAll, so a slow agent here can't add latency to a real request.
-var healthClient = &http.Client{Timeout: healthCheckTimeout}
+// Dedicated Transport with keep-alives disabled: a single tiny GET per
+// node per tick has no use for a pooled connection, and this way
+// healthClient can never leave one behind in http.DefaultTransport's
+// shared pool for Proxy/PortCheck/PingAll to reuse and stall on if it
+// went stale.
+var healthClient = &http.Client{
+	Timeout: healthCheckTimeout,
+	Transport: &http.Transport{
+		DisableKeepAlives: true,
+	},
+}
 
 // Liveness is tracked here rather than as a field on Node: PingAll ranges
 // over List and passes Node by value into per-node goroutines
