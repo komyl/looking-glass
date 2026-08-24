@@ -71,6 +71,7 @@ if g, err := geoip.Open(geoPaths...); err != nil {
 	mux.HandleFunc("GET /api/proxy", h.Proxy)
 	mux.HandleFunc("GET /api/portcheck", h.PortCheck)
 	mux.HandleFunc("GET /api/ping-all", h.PingAll)
+	mux.HandleFunc("GET /api/http-check", h.HTTPCheckAll)
 	mux.HandleFunc("GET /api/ip-info", h.IPInfo)
 	mux.HandleFunc("POST /api/report/promote", h.Promote)
 	mux.HandleFunc("GET /api/report", h.ReportRead)
