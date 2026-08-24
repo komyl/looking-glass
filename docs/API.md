@@ -72,6 +72,32 @@ Status: `ok`, `degraded` (partial loss), `down` (100% loss), `error` (unreachabl
 
 ---
 
+### GET /api/http-check
+
+All currently-reachable nodes in parallel, same fan-out convention as `/api/ping-all`. Returns when all respond or time out. Does not touch the subprocess semaphores — this is a `net/http` call on each agent, not `exec.Command`.
+
+Params: `target` (required) — a URL including scheme; only `http` and `https` are accepted.
+
+Issues a `GET` to `target` from each node with redirects **not** followed (a 301 is reported as a 301) and TLS certificate verification enabled (an invalid cert is a reportable failure, not bypassed).
+
+```json
+{
+  "target": "https://example.com",
+  "results": [
+    {"id":"node1","name":"node1",
+     "status":"ok","status_code":200,"reason":"OK",
+     "elapsed_ms":123.4,"ip":"5.6.7.8"}
+  ],
+  "request_id": "6e6f7f0263404ec8d7e06885af9290b7ba128b1a"
+}
+```
+
+`status` is `ok` (a response was received, whatever its status code) or `error` (the request itself failed). On `error`, `error` carries a classification instead of a raw Go error string: `timeout`, `connection_refused`, `dns_error`, `tls_error`, `connection_failed`, or `invalid_target`.
+
+`request_id` promotes this result via `/api/report/promote` (`kind: "http-check"`).
+
+---
+
 ### GET /api/traceroute
 
 SSE stream, single node. Params: `target` (required), `maxhops` (5–64, default 30).
@@ -264,13 +290,14 @@ Params: `id` (required).
 ```
 
 `kind` is one of `ping`, `ping-all`, `traceroute`, `dns`, `portcheck`,
-`ssl`, `bgp` — whichever check produced the report. `captured_at` is
-RFC 3339, always UTC.
+`ssl`, `bgp`, `http-check` — whichever check produced the report.
+`captured_at` is RFC 3339, always UTC.
 
 `data`'s shape depends on `kind`:
 
-- `ping-all`, `portcheck`, `ssl`, `bgp` — the same JSON body that check's
-  own live endpoint returns, minus its own `request_id` field.
+- `ping-all`, `portcheck`, `ssl`, `bgp`, `http-check` — the same JSON body
+  that check's own live endpoint returns, minus its own `request_id`
+  field.
 - `ping`, `traceroute`, `dns` — these are SSE endpoints live, so there's no
   JSON body to mirror; `data` is instead `{"target": "...", "lines":
   ["...", ...], ...}`, the transcript captured while streaming, plus the
@@ -296,7 +323,12 @@ All require `X-Agent-Secret` header.
 | GET `/traceroute` | SSE stream. Params: `target`, `maxhops` |
 | GET `/ping-summary` | Parsed ping JSON. Params: `target`, `count` (default 4) |
 | GET `/portcheck` | Port check JSON. Params: `target`, `port` |
+| GET `/http-check` | HTTP(S) connectivity check JSON. Params: `target` (full URL) |
 
 ping-summary response: `{"sent":4,"received":4,"loss":0,"rtt_min":0.7,"rtt_avg":0.8,"rtt_max":0.9}`
 
 portcheck response: `{"target":"1.1.1.1","port":443,"status":"open","latency_ms":5}`
+
+http-check response, success: `{"target":"https://example.ir","status_code":200,"reason":"OK","elapsed_ms":123.4,"ip":"5.6.7.8"}`
+
+http-check response, failure: `{"target":"https://example.ir","error":"timeout"}` — `error` is one of `timeout`, `connection_refused`, `dns_error`, `tls_error`, `connection_failed`, `invalid_target`. Redirects are never followed — the first response's status is reported as-is. 10s total budget, same class as `/portcheck`.

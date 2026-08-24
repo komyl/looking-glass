@@ -1,5 +1,13 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 1.2 (2026-08-24)
+feature:
+  - agent: add `/http-check` endpoint — GET the target URL with redirects not followed (first response's status is reported as-is) and TLS verification enabled, returning status code, reason phrase, elapsed time, and the resolved IP; 10s total budget, same class as `/portcheck`
+  - proxy: add `/api/http-check`, fanning out to all live nodes in parallel — same concurrency/liveness/capture pattern as `/api/ping-all`
+  - validator: add `ValidateHTTPTarget` — requires an http/https-scheme URL, then runs the host through the existing `ValidateNotPrivate`
+  - ui: new HTTP tab, positioned after Traceroute — table of Location/Result/Time/Code/IP per node, Copy Link and Permanent Link wired the same as every other tab
+  - report: `http-check` added as a Permanent Link report kind, same wiring as the other six
+
 version 1.1 (2026-08-10)
 feature:
   - nodes: add background agent-liveness tracking — a goroutine polls every agent's `/health` endpoint every 12s (3s timeout, dedicated http.Client), marking a node dead after 2 consecutive failures and live again after 1 success; all nodes are optimistically treated as live until the first check round completes
