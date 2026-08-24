@@ -403,3 +403,102 @@ func (h *Handler) PingAll(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, resp)
 }
+
+func (h *Handler) HTTPCheckAll(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if _, err := validator.ValidateHTTPTarget(r.Context(), target); err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if !h.rl.Allow(clientIP(r)) {
+		writeError(w, "rate limited — try again in a minute", http.StatusTooManyRequests)
+		return
+	}
+
+	type nodeResult struct {
+		ID         string  `json:"id"`
+		Name       string  `json:"name"`
+		StatusCode int     `json:"status_code,omitempty"`
+		Reason     string  `json:"reason,omitempty"`
+		ElapsedMs  float64 `json:"elapsed_ms,omitempty"`
+		IP         string  `json:"ip,omitempty"`
+		Error      string  `json:"error,omitempty"`
+		Status     string  `json:"status"`
+	}
+
+	liveNodes := nodes.LiveNodes()
+	results := make([]nodeResult, len(liveNodes))
+	for i, n := range liveNodes {
+		results[i] = nodeResult{ID: n.ID, Name: n.Name, Status: "pending"}
+	}
+
+	type agentResp struct {
+		StatusCode int     `json:"status_code"`
+		Reason     string  `json:"reason"`
+		ElapsedMs  float64 `json:"elapsed_ms"`
+		IP         string  `json:"ip"`
+		Error      string  `json:"error,omitempty"`
+	}
+
+	const maxConcurrentAgents = 8
+	sem := make(chan struct{}, maxConcurrentAgents)
+	var wg sync.WaitGroup
+	for i, n := range liveNodes {
+		wg.Add(1)
+		go func(idx int, node nodes.Node) {
+			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			q := url.Values{"target": {target}}
+			agentURL := fmt.Sprintf("%s/http-check?%s", node.URL, q.Encode())
+			req, err := http.NewRequest("GET", agentURL, nil)
+			if err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = "connection_failed"
+				return
+			}
+			req.Header.Set("X-Agent-Secret", nodes.Secret)
+
+			// 20s: double the agent's own 10s check budget, same ~2x
+			// headroom PortCheck gives its agent's 5s connect timeout.
+			client := &http.Client{Timeout: 20 * time.Second}
+			resp, err := client.Do(req)
+			if err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = "agent_unreachable"
+				return
+			}
+			defer resp.Body.Close()
+
+			var ar agentResp
+			if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
+				results[idx].Status = "error"
+				results[idx].Error = "invalid_response"
+				return
+			}
+
+			if ar.Error != "" {
+				results[idx].Status = "error"
+				results[idx].Error = ar.Error
+				return
+			}
+			results[idx].Status = "ok"
+			results[idx].StatusCode = ar.StatusCode
+			results[idx].Reason = ar.Reason
+			results[idx].ElapsedMs = ar.ElapsedMs
+			results[idx].IP = ar.IP
+		}(i, n)
+	}
+
+	wg.Wait()
+	resp := map[string]any{"target": target, "results": results}
+	if data, err := json.Marshal(resp); err == nil {
+		if id := h.captureJSON("http-check", target, data); id != "" {
+			resp["request_id"] = id
+		}
+	}
+	writeJSON(w, resp)
+}
