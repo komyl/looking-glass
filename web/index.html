@@ -41,6 +41,13 @@
             <button class="tab" id="tab-traceroute" onclick="switchTab('traceroute')">
                 <span>Traceroute</span>
             </button>
+            <button class="tab" id="tab-httpcheck" onclick="switchTab('httpcheck')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                <span>HTTP</span>
+            </button>
             <button class="tab" id="tab-dig" onclick="switchTab('dig')">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                     <circle cx="12" cy="12" r="10" />
@@ -163,6 +170,44 @@
                     </div>
                 </div>
                 <pre class="terminal" id="tr-out"><span class="ph">Enter a target and press Run</span></pre>
+            </div>
+        </div>
+
+        <!-- HTTP CHECK -->
+        <div class="panel" id="panel-httpcheck">
+            <div class="card">
+                <div class="form-row">
+                    <div class="fg">
+                        <label>Target URL</label>
+                        <input type="text" id="httpcheck-target" placeholder="https://example.ir" autocomplete="off"
+                            autocorrect="off" spellcheck="false" />
+                    </div>
+                    <div class="fg narrow">
+                        <label>&nbsp;</label>
+                        <button class="btn btn-run" id="httpcheck-run" onclick="runHTTPCheck()">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M5 3l14 9-14 9V3z" />
+                            </svg>
+                            Run
+                        </button>
+                    </div>
+                </div>
+                <div class="out-header">
+                    <span class="out-label">Results</span>
+                    <div class="out-controls">
+                        <span class="status"><span class="dot" id="httpcheck-dot"></span><span
+                                id="httpcheck-stxt">Ready</span></span>
+                        <button onclick="copyShareLink(this)" class="btn"
+                            style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Copy
+                            Link</button>
+                        <button onclick="makePermanent(this)" class="btn"
+                            style="padding:4px 10px;font-size:12px;background:var(--surf2);border:1px solid var(--bdr);color:var(--muted2)">Permanent
+                            Link</button>
+                    </div>
+                </div>
+                <div id="httpcheck-out" style="overflow-x:auto">
+                    <span class="ph">Enter a target URL and press Run</span>
+                </div>
             </div>
         </div>
 

@@ -1,6 +1,6 @@
 'use strict';
 function switchTab(name) {
-    ['ping', 'traceroute', 'dig', 'port', 'ssl', 'bgp'].forEach(n => {
+    ['ping', 'traceroute', 'httpcheck', 'dig', 'port', 'ssl', 'bgp'].forEach(n => {
         document.getElementById('tab-' + n).classList.toggle('active', n === name);
         document.getElementById('panel-' + n).classList.toggle('active', n === name);
     });
@@ -149,6 +149,71 @@ function runPingAll() {
             document.getElementById('ping-run').disabled = false;
         });
 }
+
+const HC_ERR_LABEL = {
+    timeout: 'Timeout',
+    connection_refused: 'Connection Refused',
+    dns_error: 'DNS Error',
+    tls_error: 'TLS Error',
+    connection_failed: 'Connection Failed',
+    invalid_target: 'Invalid Target',
+};
+function runHTTPCheck() {
+    let target = document.getElementById('httpcheck-target').value.trim();
+    if (!target) return;
+    if (!/^https?:\/\//i.test(target)) target = 'http://' + target;
+    document.getElementById('httpcheck-target').value = target;
+    const out = document.getElementById('httpcheck-out');
+    setStatus('httpcheck', 'run', 'Running...');
+    document.getElementById('httpcheck-run').disabled = true;
+    out.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
+<th style="text-align:left;padding:8px 10px">Location</th>
+<th style="text-align:center;padding:8px 10px">Result</th>
+<th style="text-align:right;padding:8px 10px">Time</th>
+<th style="text-align:center;padding:8px 10px">Code</th>
+<th style="text-align:right;padding:8px 10px">IP Address</th>
+</tr></thead>
+<tbody id="httpcheck-tbody"></tbody>
+</table>`;
+    fetch('/api/nodes').then(r => r.json()).then(ns => {
+        const tbody = document.getElementById('httpcheck-tbody');
+        ns.forEach(n => {
+            tbody.innerHTML += `<tr id="httpcheck-row-${n.id}" style="border-bottom:1px solid var(--bdr2)">
+<td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(n.name)}</td>
+<td style="padding:10px 10px;text-align:center"><span class="spin"></span></td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">—</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">—</td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">—</td>
+</tr>`;
+        });
+    });
+    fetch('/api/http-check?target=' + encodeURIComponent(target))
+        .then(r => r.json())
+        .then(data => {
+            lastRequestId.httpcheck = data.request_id || null;
+            (data.results || []).forEach(r => {
+                const row = document.getElementById('httpcheck-row-' + r.id);
+                if (!row) return;
+                const cells = row.querySelectorAll('td');
+                const ok = r.status === 'ok';
+                cells[1].innerHTML = ok
+                    ? `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>`
+                    : `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`;
+                cells[2].textContent = ok ? `${Math.round(r.elapsed_ms)} ms` : '—';
+                cells[3].textContent = ok ? `${r.status_code} ${r.reason || ''}`.trim() : (HC_ERR_LABEL[r.error] || r.error || '—');
+                cells[4].textContent = ok && r.ip ? r.ip : '—';
+            });
+            setStatus('httpcheck', 'ok', 'Done');
+            document.getElementById('httpcheck-run').disabled = false;
+        })
+        .catch(err => {
+            setStatus('httpcheck', 'err', 'Error');
+            document.getElementById('httpcheck-out').innerHTML = `<span class="t-err">Request failed: ${esc(err.message)}</span>`;
+            document.getElementById('httpcheck-run').disabled = false;
+        });
+}
+document.getElementById('httpcheck-target').addEventListener('keydown', e => { if (e.key === 'Enter') runHTTPCheck() });
 
 let trES = null;
 function runTrace() {
@@ -448,10 +513,10 @@ ${latency}${errRow}
 document.getElementById('port-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
 document.getElementById('port-port').addEventListener('keydown', e => { if (e.key === 'Enter') runPort() });
 
-const lastRequestId = { ping: null, traceroute: null, dig: null, port: null, ssl: null, bgp: null };
-const KIND_TAB = { 'ping-all': 'ping', ping: 'ping', traceroute: 'traceroute', dns: 'dig', portcheck: 'port', ssl: 'ssl', bgp: 'bgp' };
-const TAB_OUT = { ping: 'ping-out', traceroute: 'tr-out', dig: 'dig-out', port: 'port-out', ssl: 'ssl-out', bgp: 'bgp-out' };
-const TAB_STATUS = { ping: 'ping', traceroute: 'tr', dig: 'dig', port: 'port', ssl: 'ssl', bgp: 'bgp' };
+const lastRequestId = { ping: null, traceroute: null, httpcheck: null, dig: null, port: null, ssl: null, bgp: null };
+const KIND_TAB = { 'ping-all': 'ping', ping: 'ping', traceroute: 'traceroute', 'http-check': 'httpcheck', dns: 'dig', portcheck: 'port', ssl: 'ssl', bgp: 'bgp' };
+const TAB_OUT = { ping: 'ping-out', traceroute: 'tr-out', httpcheck: 'httpcheck-out', dig: 'dig-out', port: 'port-out', ssl: 'ssl-out', bgp: 'bgp-out' };
+const TAB_STATUS = { ping: 'ping', traceroute: 'tr', httpcheck: 'httpcheck', dig: 'dig', port: 'port', ssl: 'ssl', bgp: 'bgp' };
 
 function flashBtn(btn, text) {
     if (!btn) return;
@@ -549,6 +614,29 @@ function renderFrozenPingAll(data) {
     return html;
 }
 
+function renderFrozenHTTPCheck(data) {
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bdr)">
+<th style="text-align:left;padding:8px 10px">Location</th>
+<th style="text-align:center;padding:8px 10px">Result</th>
+<th style="text-align:right;padding:8px 10px">Time</th>
+<th style="text-align:center;padding:8px 10px">Code</th>
+<th style="text-align:right;padding:8px 10px">IP Address</th>
+</tr></thead><tbody>`;
+    (data.results || []).forEach(r => {
+        const ok = r.status === 'ok';
+        html += `<tr style="border-bottom:1px solid var(--bdr2)">
+<td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(r.name)}</td>
+<td style="padding:10px 10px;text-align:center">${ok ? `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>` : `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`}</td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">${ok ? `${Math.round(r.elapsed_ms)} ms` : '—'}</td>
+<td style="padding:10px 10px;text-align:center;font-family:var(--mono)">${ok ? esc(`${r.status_code} ${r.reason || ''}`.trim()) : esc(HC_ERR_LABEL[r.error] || r.error || '—')}</td>
+<td style="padding:10px 10px;text-align:right;font-family:var(--mono)">${ok && r.ip ? esc(r.ip) : '—'}</td>
+</tr>`;
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
 function loadReport(tab, id) {
     fetch('/api/report?id=' + encodeURIComponent(id))
         .then(r => {
@@ -580,6 +668,9 @@ function loadReport(tab, id) {
             } else if (rep.kind === 'ping-all') {
                 document.getElementById('ping-target').value = rep.target;
                 out.innerHTML = banner + renderFrozenPingAll(d);
+            } else if (rep.kind === 'http-check') {
+                document.getElementById('httpcheck-target').value = rep.target;
+                out.innerHTML = banner + renderFrozenHTTPCheck(d);
             } else if (rep.kind === 'dns') {
                 document.getElementById('dig-target').value = d.target || rep.target;
                 if (d.qtype) document.getElementById('dig-qtype').value = d.qtype;
@@ -628,6 +719,10 @@ function copyShareLink(btn) {
     }
     else if (tabName === 'ping') {
         target = document.getElementById('ping-target').value.trim();
+        if (target) url.searchParams.set('t', target);
+    }
+    else if (tabName === 'httpcheck') {
+        target = document.getElementById('httpcheck-target').value.trim();
         if (target) url.searchParams.set('t', target);
     }
     else if (tabName === 'traceroute') {
@@ -691,6 +786,10 @@ function loadFromURL() {
     if (tab === 'ping' && target) {
         document.getElementById('ping-target').value = target;
         if (run) setTimeout(runPingAll, 400);
+    }
+    if (tab === 'httpcheck' && target) {
+        document.getElementById('httpcheck-target').value = target;
+        if (run) setTimeout(runHTTPCheck, 400);
     }
     if (tab === 'traceroute' && target) {
         document.getElementById('tr-target').value = target;
