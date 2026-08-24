@@ -197,9 +197,12 @@ function runHTTPCheck() {
                 if (!row) return;
                 const cells = row.querySelectorAll('td');
                 const ok = r.status === 'ok';
-                cells[1].innerHTML = ok
-                    ? `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>`
-                    : `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`;
+                const serverError = ok && r.status_code >= 500;
+                cells[1].innerHTML = !ok
+                    ? `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`
+                    : serverError
+                        ? `<span style="color:var(--red);font-weight:700;font-size:12px">Server Error</span>`
+                        : `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>`;
                 cells[2].textContent = ok ? `${Math.round(r.elapsed_ms)} ms` : '—';
                 cells[3].textContent = ok ? `${r.status_code} ${r.reason || ''}`.trim() : (HC_ERR_LABEL[r.error] || r.error || '—');
                 cells[4].textContent = ok && r.ip ? r.ip : '—';
@@ -625,9 +628,15 @@ function renderFrozenHTTPCheck(data) {
 </tr></thead><tbody>`;
     (data.results || []).forEach(r => {
         const ok = r.status === 'ok';
+        const serverError = ok && r.status_code >= 500;
+        const resultCell = !ok
+            ? `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`
+            : serverError
+                ? `<span style="color:var(--red);font-weight:700;font-size:12px">Server Error</span>`
+                : `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>`;
         html += `<tr style="border-bottom:1px solid var(--bdr2)">
 <td style="padding:10px 10px;font-weight:600;color:var(--text)">${esc(r.name)}</td>
-<td style="padding:10px 10px;text-align:center">${ok ? `<span style="color:var(--green);font-weight:700;font-size:12px">OK</span>` : `<span style="color:var(--red);font-weight:700;font-size:12px">Error</span>`}</td>
+<td style="padding:10px 10px;text-align:center">${resultCell}</td>
 <td style="padding:10px 10px;text-align:right;font-family:var(--mono)">${ok ? `${Math.round(r.elapsed_ms)} ms` : '—'}</td>
 <td style="padding:10px 10px;text-align:center;font-family:var(--mono)">${ok ? esc(`${r.status_code} ${r.reason || ''}`.trim()) : esc(HC_ERR_LABEL[r.error] || r.error || '—')}</td>
 <td style="padding:10px 10px;text-align:right;font-family:var(--mono)">${ok && r.ip ? esc(r.ip) : '—'}</td>
