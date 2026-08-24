@@ -17,6 +17,7 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 
 - Multi-node ping — all nodes probed in parallel, results in a single table
 - Traceroute — user selects source node. Output streamed in real time via SSE. Each hop IP is enriched with ASN and operator name from the ipinfo dataset.
+- HTTP(S) check — all nodes probed in parallel, redirects not followed, TLS certificate verified
 - Port check — TCP connect with open/closed/filtered status
 - DNS lookup — queries multiple resolvers in parallel and returns clean grouped results (shows how many resolvers returned each record)
 - SSL inspection — certificate details, validity window, SAN list
