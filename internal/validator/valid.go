@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -75,6 +76,24 @@ func isPrivateIP(ip net.IP) bool {
 		ip.IsLinkLocalMulticast() ||
 		ip.IsUnspecified() ||
 		ip.IsMulticast()
+}
+
+// ValidateHTTPTarget requires s to be a URL with scheme exactly "http" or
+// "https" — no scheme, or any other scheme, is rejected outright. The host
+// is then run through ValidateNotPrivate, same as every other target-facing
+// endpoint; see that function's doc comment for the resolved-IP contract.
+func ValidateHTTPTarget(ctx context.Context, s string) (net.IP, error) {
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %v", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, fmt.Errorf("URL scheme must be http or https")
+	}
+	if u.Hostname() == "" {
+		return nil, fmt.Errorf("URL must include a host")
+	}
+	return ValidateNotPrivate(ctx, u.Hostname())
 }
 
 func ValidatePrefix(s string) error {
