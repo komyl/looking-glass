@@ -1,5 +1,9 @@
 looking-glass changelog. Most recent changes are at the top.
 
+unreleased
+fixes:
+  - ui: fix Enter in the Ping target input to run the same multi-node ping as the Run button
+
 version 1.2 (2026-08-24)
 feature:
   - agent: add `/http-check` endpoint — GET the target URL with redirects not followed (first response's status is reported as-is) and TLS verification enabled, returning status code, reason phrase, elapsed time, and the resolved IP; 10s total budget, same class as `/portcheck`

@@ -446,7 +446,7 @@ function getFlagEmoji(code) {
     const o = 127397;
     return String.fromCodePoint(code.charCodeAt(0) + o) + String.fromCodePoint(code.charCodeAt(1) + o);
 }
-document.getElementById('ping-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPing() });
+document.getElementById('ping-target').addEventListener('keydown', e => { if (e.key === 'Enter') runPingAll() });
 document.getElementById('tr-target').addEventListener('keydown', e => { if (e.key === 'Enter') runTrace() });
 document.getElementById('dig-target').addEventListener('keydown', e => { if (e.key === 'Enter') runDig() });
 document.getElementById('bgp-query').addEventListener('keydown', e => { if (e.key === 'Enter') runBGP() });
