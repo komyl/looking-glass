@@ -2,6 +2,7 @@ looking-glass changelog. Most recent changes are at the top.
 
 version 1.3 (2026-09-08)
 fixes:
+  - web: collapse repeated consecutive AS path prepends in BGP display
   - bgp: prevent duplicate route memberships in the reverse ASN index while preserving the original AS path
   - ui: fix Enter in the Ping target input to run the same multi-node ping as the Run button
 

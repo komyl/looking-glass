@@ -399,15 +399,26 @@ function renderBGP(data, type) {
             const enrichMap = {};
             aspEnriched.forEach(a => enrichMap[a.asn] = a);
 
-            aspHtml = (r.aspath || []).map((asn, idx) => {
-                const info = enrichMap[asn] || {};
+            const groups = [];
+            (r.aspath || []).forEach(asn => {
+                const last = groups[groups.length - 1];
+                if (last && last.asn === asn) {
+                    last.count++;
+                    return;
+                }
+                groups.push({ asn, count: 1 });
+            });
+
+            aspHtml = groups.map((group, idx) => {
+                const info = enrichMap[group.asn] || {};
                 const name = info.name
                     ? `<span style="color:var(--muted2);font-size:10px;margin-left:3px">${esc(info.name)}</span>`
                     : '';
-                const arrow = idx < (r.aspath || []).length - 1
+                const count = group.count > 1 ? ` ×${group.count}` : '';
+                const arrow = idx < groups.length - 1
                     ? `<span style="color:var(--bdr2);margin:0 4px">→</span>`
                     : '';
-                return `<span class="asn-tag">AS${asn}</span>${name}${arrow}`;
+                return `<span class="asn-tag">AS${group.asn}${count}</span>${name}${arrow}`;
             }).join('');
         }
 
