@@ -90,7 +90,9 @@ func (s *Store) load() error {
 	}
 
 	skipped := 0
+	seenASNs := make(map[int]struct{})
 	for _, r := range data.Routes {
+		clear(seenASNs)
 		_, ipnet, err := net.ParseCIDR(r.Prefix)
 		if err != nil {
 			skipped++
@@ -98,6 +100,10 @@ func (s *Store) load() error {
 		}
 		snap.trie.Insert(ipnet, r)
 		for _, asn := range r.ASPath {
+			if _, ok := seenASNs[asn]; ok {
+				continue
+			}
+			seenASNs[asn] = struct{}{}
 			snap.byASN[asn] = append(snap.byASN[asn], r)
 		}
 		snap.routeCount++
