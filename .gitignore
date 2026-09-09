@@ -3,6 +3,7 @@ looking-glass
 looking-glass-agent
 agent
 mrt2json
+geoipbuilder
 
 # BGP data
 *.gz
