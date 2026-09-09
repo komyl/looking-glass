@@ -1,5 +1,12 @@
 looking-glass changelog. Most recent changes are at the top.
 
+version 1.4 (2026-09-09)
+feature:
+  - geoip: add an offline canonical GeoIP candidate workflow combining MaxMind Country, MaxMind ASN, and IPinfo Lite into the established eight-column CSV/CSV.GZ format
+  - geoip: partition canonical output at every selected source-prefix boundary and apply precedence independently per field instead of merging by prefix base address
+docs:
+  - tooling: clarify that agent and offline data-preparation implementations under private `cmd/` tooling are operationally documented but are not part of the public source checkout
+
 version 1.3 (2026-09-08)
 fixes:
   - web: collapse repeated consecutive AS path prepends in BGP display

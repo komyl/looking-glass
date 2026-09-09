@@ -8,8 +8,12 @@ Probes are distributed across multiple measurement nodes. The master orchestrate
 
 ```sh
 go build -ldflags="-s -w" -trimpath -o looking-glass .
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o agent ./cmd/agent/
 ```
+
+The public checkout contains the Master/runtime source. The measurement agent
+and offline data-preparation tools are private operator tooling: their
+operational interfaces are documented here, but their `cmd/` implementations
+are not distributed in the public repository.
 
 See [INSTALL.md](INSTALL.md) for full deployment instructions.
 
@@ -56,7 +60,7 @@ web/js/app.js         frontend logic
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design and decisions
 - [docs/API.md](docs/API.md) — HTTP API reference
 - [docs/bgp-data.md](docs/bgp-data.md) — MRT format, conversion, update process
-- [docs/GeoIp.md](docs/GeoIp.md) — ipinfo CSV setup
+- [docs/GeoIp.md](docs/GeoIp.md) — runtime GeoIP and canonical candidate preparation
 - [CONTRIBUTING.md](CONTRIBUTING.md) — adding nodes, contributing patches
 - [CHANGELOG](CHANGELOG) — version history
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities

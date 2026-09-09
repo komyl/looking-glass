@@ -39,6 +39,9 @@ wget http://archive.routeviews.org/bgpdata/$(date +%Y.%m)/RIBS/rib.$(date +%Y%m%
 
 ## Converting
 
+`mrt2json` is private operator-side tooling whose implementation is not
+distributed in the public source checkout. Its operational interface is:
+
 ```sh
 ./mrt2json latest-bview.gz /var/lib/looking-glass/bgp.json
 ```

@@ -7,13 +7,13 @@ Requires Go 1.22 or later. No external Go dependencies.
 ```sh
 # Master binary
 go build -ldflags="-s -w" -trimpath -o looking-glass .
-
-# Agent binary (cross-compile for Linux amd64)
-GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -trimpath -o agent ./cmd/agent/
-
-# MRT converter (run on update, not deployed to servers)
-go build -ldflags="-s -w" -trimpath -o mrt2json ./cmd/mrt2json/
 ```
+
+The public GitHub checkout contains the Master source built above. The
+`agent`, `mrt2json`, and `geoipbuilder` implementations are private operator
+tooling and cannot be built from `cmd/` paths in the public checkout. Operators
+must supply authorized builds of those tools; the sections below document
+their deployment or operational interfaces.
 
 The HTML UI is embedded into the master binary at compile time via `//go:embed`. Any change to files inside the `web/` directory (including `index.html`, `css/`, and `js/`) requires a rebuild of the binary and service restart.
 
@@ -33,7 +33,8 @@ cp looking-glass /usr/local/bin/looking-glass
 
 ### BGP data
 
-Download a full RIB snapshot from RIPE RIS and convert it:
+Using the operator-supplied `mrt2json` tool, download a full RIB snapshot from
+RIPE RIS and convert it:
 
 ```sh
 wget https://data.ris.ripe.net/rrc00/latest-bview.gz
@@ -44,7 +45,26 @@ Conversion takes 10–15 minutes and produces a ~260 MB JSON file. The service p
 
 ### GeoIP data
 
-Obtain an ipinfo Lite CSV (plain or gzip). Place it at the path configured by `GEOIP_PATH`. See [docs/GeoIp.md](docs/GeoIp.md).
+The current Master loads an ipinfo Lite CSV or CSV.GZ from `GEOIP_PATH` and
+may load a second CSV source from `GEOIP_PATH2`. This runtime behavior remains
+unchanged. See [docs/GeoIp.md](docs/GeoIp.md).
+
+An operator with the private `geoipbuilder` tool may prepare an offline
+canonical candidate from MaxMind Country, MaxMind ASN, and IPinfo Lite:
+
+```sh
+geoipbuilder -country /path/to/GeoLite2-Country.mmdb \
+  -asn /path/to/GeoLite2-ASN.mmdb \
+  -ipinfo /path/to/ipinfo_lite.csv.gz \
+  -output /private/operator-dir/canonical-geoip.csv.gz
+```
+
+The output path must not already exist, and its directory must not be group-
+or world-writable. The resulting CSV/CSV.GZ is a candidate only. This command
+does not perform the separate candidate-validation/publication gate, and it
+does not alter the running Master. Until the later canonical-source switch is
+implemented, Master configuration continues to use `GEOIP_PATH` and optional
+`GEOIP_PATH2` as described above.
 
 ### Reports directory (Permanent Link)
 
@@ -152,6 +172,9 @@ fail2ban-client reload
 ## Agent nodes
 
 Requirements: Debian 13 or Ubuntu 24.04, 2+ cores, 4+ GB RAM.
+
+The `agent` binary used below is operator-supplied private tooling, not a build
+artifact available from the public source checkout.
 
 ```sh
 apt update && apt install -y iputils-ping traceroute

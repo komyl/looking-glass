@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two binaries. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations.
+Two deployed service roles. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations. Additional private operator-side tools prepare data offline, including MRT conversion and canonical GeoIP candidate generation; they are not deployed services, and their implementations are not part of the public source checkout.
 
 ```
                      ┌──────────────────────────────┐
@@ -35,9 +35,17 @@ Memory: a full global BGP table (~1.4M prefixes) occupies approximately 2 GB RSS
 
 ## GeoIP
 
-The ipinfo Lite CSV is loaded into the same binary radix trie structure as BGP routes. A hash map (`map[string]*Record`) is built alongside it in a single pass, keyed by ASN string (`AS15169`), for O(1) operator name resolution during BGP response enrichment.
+The current Master loads ipinfo Lite CSV into the same binary radix trie structure as BGP routes. A hash map (`map[string]*Record`) is built alongside it in a single pass, keyed by ASN string (`AS15169`), for O(1) operator name resolution during BGP response enrichment.
 
-MaxMind MMDB format was evaluated but not adopted. A pure Go MMDB reader was implemented and correctly parsed metadata and traversed the trie, but triggered goroutine stack overflow on deeply nested pointer chains in the data section. The ipinfo CSV is simpler, requires no custom binary format parser, and uses the same trie infrastructure already present in the codebase.
+MaxMind MMDB was not adopted as a Master runtime input format. An earlier runtime-oriented pure Go reader correctly parsed metadata and traversed the trie, but triggered goroutine stack overflow on deeply nested pointer chains in the data section. The CSV runtime loader remained simpler and continued to use the existing trie infrastructure.
+
+The private offline `geoipbuilder` now consumes MaxMind Country and ASN MMDB
+together with IPinfo Lite CSV/CSV.GZ. It partitions output at the union of
+source-prefix boundaries and writes the repository-compatible canonical CSV
+or CSV.GZ schema. This does not change the Master loader: current runtime
+configuration still uses `GEOIP_PATH` and optional `GEOIP_PATH2`. Candidate
+validation, publication, and the runtime canonical-source switch remain
+separate future work.
 
 ---
 

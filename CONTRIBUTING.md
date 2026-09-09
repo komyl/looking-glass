@@ -1,5 +1,10 @@
 # Contributing
 
+The public checkout contains the Master/runtime source. The measurement agent
+is private operator-side tooling; its deployment interface is documented here,
+but its implementation is not distributed under `cmd/` in the public
+repository.
+
 ## Adding a measurement node
 
 1. Provision a host running Debian 13 or Ubuntu 24.04, minimum 2 cores and 4 GB RAM.
