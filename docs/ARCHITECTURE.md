@@ -43,9 +43,17 @@ The private offline `geoipbuilder` now consumes MaxMind Country and ASN MMDB
 together with IPinfo Lite CSV/CSV.GZ. It partitions output at the union of
 source-prefix boundaries and writes the repository-compatible canonical CSV
 or CSV.GZ schema. This does not change the Master loader: current runtime
-configuration still uses `GEOIP_PATH` and optional `GEOIP_PATH2`. Candidate
-validation, publication, and the runtime canonical-source switch remain
-separate future work.
+configuration still uses `GEOIP_PATH` and optional `GEOIP_PATH2`.
+
+The same offline tool validates a candidate structurally and independently
+re-derives its boundary partition and field values from all three sources.
+It rejects a published path that names the same filesystem object as a source
+or the candidate. Publication copies the exact validated bytes into a
+destination-local staging file, syncs and closes it, atomically renames it
+over the published path, and syncs the directory. Validation or pre-rename
+failure preserves the previous published artifact. No older generation is
+retained after a successful rename. The Master runtime canonical-source
+switch remains separate future work.
 
 ---
 

@@ -75,10 +75,49 @@ builder streams IPinfo and output records, uses bounded resource controls, and
 does not expand address space one IP at a time. It refuses to overwrite an
 existing requested candidate path.
 
-Candidate generation is offline only. It does not perform the separate
-candidate-validation/publication gate, replace current GeoIP data, set
-`GEOIP_PATH` or `GEOIP_PATH2`, or alter the running Master. Candidate
-publication and the runtime canonical-source switch are not implemented.
+Candidate generation is offline only. It does not replace current GeoIP data,
+set `GEOIP_PATH` or `GEOIP_PATH2`, or alter the running Master.
+
+## Offline candidate validation and publication
+
+Validation requires the original three sources and a completed candidate:
+
+```sh
+geoipbuilder -country <GeoLite2-Country.mmdb> \
+  -asn <GeoLite2-ASN.mmdb> \
+  -ipinfo <ipinfo_lite.csv|ipinfo_lite.csv.gz> \
+  -candidate <candidate.csv|candidate.csv.gz>
+```
+
+The validator rejects malformed or truncated CSV/GZIP, a non-exact header or
+field count, non-canonical CIDRs, duplicates, overlaps, ordering errors, and
+trailing data. It independently walks the source boundaries, derives field
+precedence, and requires exact maximal CIDR coverage and field values. It
+reports SHA-256 identities for both the exact artifact bytes and canonical
+uncompressed CSV content.
+
+Add `-publish` to replace an offline published artifact only after validation:
+
+```sh
+geoipbuilder -country <GeoLite2-Country.mmdb> \
+  -asn <GeoLite2-ASN.mmdb> \
+  -ipinfo <ipinfo_lite.csv|ipinfo_lite.csv.gz> \
+  -candidate <candidate.csv|candidate.csv.gz> \
+  -publish <published.csv|published.csv.gz>
+```
+
+Candidate and published paths must use the same CSV or CSV.GZ format. The
+published path must not name the same filesystem object as any source or the
+candidate; existing aliases through equivalent paths, symbolic links, or hard
+links are rejected before staging. The tool copies the exact candidate bytes
+into a destination-local staging file while validating the already-open
+candidate. It syncs and closes that file, then atomically renames it over the
+published path and syncs the directory. The old published artifact remains
+until rename, which is the commit point. No older generation is retained after
+commit, and concurrent successful publishers use last-rename-wins semantics.
+
+Candidate validation and publication still do not alter the running Master.
+The runtime canonical-source switch is not implemented.
 
 ## Internal representation
 

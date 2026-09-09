@@ -60,9 +60,33 @@ geoipbuilder -country /path/to/GeoLite2-Country.mmdb \
 ```
 
 The output path must not already exist, and its directory must not be group-
-or world-writable. The resulting CSV/CSV.GZ is a candidate only. This command
-does not perform the separate candidate-validation/publication gate, and it
-does not alter the running Master. Until the later canonical-source switch is
+or world-writable. The resulting CSV/CSV.GZ is a candidate only.
+
+Validate the candidate independently against the same three source files:
+
+```sh
+geoipbuilder -country /path/to/GeoLite2-Country.mmdb \
+  -asn /path/to/GeoLite2-ASN.mmdb \
+  -ipinfo /path/to/ipinfo_lite.csv.gz \
+  -candidate /private/operator-dir/canonical-geoip.csv.gz
+```
+
+To atomically replace an offline published artifact after successful
+validation, add a destination using the same CSV or CSV.GZ format:
+
+```sh
+geoipbuilder -country /path/to/GeoLite2-Country.mmdb \
+  -asn /path/to/GeoLite2-ASN.mmdb \
+  -ipinfo /path/to/ipinfo_lite.csv.gz \
+  -candidate /private/operator-dir/canonical-geoip.csv.gz \
+  -publish /private/operator-dir/published-geoip.csv.gz
+```
+
+The publication directory must not be group- or world-writable. The published
+path must not alias any source or the candidate, including through a symbolic
+link or hard link. The previous published artifact remains until the atomic
+rename commit. No older generation is retained afterward. These commands do
+not alter the running Master. Until the later canonical-source switch is
 implemented, Master configuration continues to use `GEOIP_PATH` and optional
 `GEOIP_PATH2` as described above.
 
