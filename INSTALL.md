@@ -45,9 +45,17 @@ Conversion takes 10–15 minutes and produces a ~260 MB JSON file. The service p
 
 ### GeoIP data
 
-The current Master loads an ipinfo Lite CSV or CSV.GZ from `GEOIP_PATH` and
-may load a second CSV source from `GEOIP_PATH2`. This runtime behavior remains
-unchanged. See [docs/GeoIp.md](docs/GeoIp.md).
+The current Master loads one published canonical CSV or CSV.GZ artifact from
+`GEOIP_PATH`. The artifact must use this exact schema:
+
+```text
+network,country,country_code,continent,continent_code,asn,as_name,as_domain
+```
+
+`GEOIP_PATH2` is not a supported second source. A non-empty value is invalid
+configuration and prevents Master startup. The built-in `GEOIP_PATH` default
+retains its historical filename, but the file at that path must now be the
+published canonical artifact. See [docs/GeoIp.md](docs/GeoIp.md).
 
 An operator with the private `geoipbuilder` tool may prepare an offline
 canonical candidate from MaxMind Country, MaxMind ASN, and IPinfo Lite:
@@ -86,9 +94,9 @@ The publication directory must not be group- or world-writable. The published
 path must not alias any source or the candidate, including through a symbolic
 link or hard link. The previous published artifact remains until the atomic
 rename commit. No older generation is retained afterward. These commands do
-not alter the running Master. Until the later canonical-source switch is
-implemented, Master configuration continues to use `GEOIP_PATH` and optional
-`GEOIP_PATH2` as described above.
+not alter the running Master. After publication, configure `GEOIP_PATH` with
+the published artifact path and restart the Master to load it. GeoIP has no
+hot reload. Do not set `GEOIP_PATH2`.
 
 ### Reports directory (Permanent Link)
 
@@ -99,6 +107,9 @@ Environment=REPORTS_DIR=/var/lib/looking-glass/reports
 ```
 
 ### systemd service
+
+Replace `<PUBLISHED_CANONICAL_GEOIP_PATH>` below with the operator-selected
+published canonical CSV or CSV.GZ path.
 
 ```sh
 cat > /etc/systemd/system/looking-glass.service << 'EOF'
@@ -111,7 +122,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/looking-glass
 Environment=BGP_DATA_PATH=/var/lib/looking-glass/bgp.json
-Environment=GEOIP_PATH=/opt/ipinfo/ipinfo_lite.csv.gz
+Environment=GEOIP_PATH=<PUBLISHED_CANONICAL_GEOIP_PATH>
 Environment=REPORTS_DIR=/var/lib/looking-glass/reports
 Environment=LISTEN_ADDR=127.0.0.1:8082
 Environment=AGENT_SECRET=<YOUR_SECRET>
@@ -257,8 +268,8 @@ curl -s -H "X-Agent-Secret: <YOUR_SECRET>" http://<NODE_IP>:9090/health
 |--------|-----------------------|------------------------------------|------------------------------------|
 | master | `LISTEN_ADDR`         | `127.0.0.1:8082`                   | TCP bind address                   |
 | master | `BGP_DATA_PATH`       | `/var/lib/looking-glass/bgp.json`  | BGP data file path                 |
-| master | `GEOIP_PATH`          | `/var/lib/looking-glass/ipinfo_lite.csv.gz` | Path to ipinfo Lite CSV            |
-| master | `GEOIP_PATH2`         | *(optional)*                       | Second GeoIP CSV (higher priority) |
+| master | `GEOIP_PATH`          | `/var/lib/looking-glass/ipinfo_lite.csv.gz` | Path to one published canonical CSV or CSV.GZ artifact |
+| master | `GEOIP_PATH2`         | *(must be unset)*                  | Unsupported; a non-empty value prevents Master startup |
 | master | `REPORTS_DIR`         | `/var/lib/looking-glass/reports`   | Directory for promoted Permanent Link reports (one JSON file per report, 24h TTL). Service user needs write access. |
 | master | `LOOKING_GLASS_RESOLVERS` | (built-in list)                | DNS resolvers for `/api/dig`       |
 | master | `AGENT_SECRET`        | *(required)*                       | Secret used for authenticating with agent nodes. Master exits at startup if unset. |

@@ -216,7 +216,15 @@ Params: `type` (`ip`, `prefix`, or `asn`), `query` (IP, CIDR, or ASN).
 }
 ```
 
-`geo` and `aspath_enriched` present only for `type=ip` when GeoIP is loaded. ASN lookup capped at 1000 routes. `type` echoes the normalized (lowercased) lookup type. `request_id` promotes this result via `/api/report/promote` (`kind: "bgp"`).
+Per-route `geo` is present only for `type=ip` when GeoIP is loaded and the
+query has a matching GeoIP record. The `aspath_enriched` key is present on
+every successful BGP response: it is JSON `null` when GeoIP is unavailable or
+no route is returned, and may be populated for `ip`, `prefix`, or `asn` from
+the first returned route's AS path when GeoIP is loaded. Individual entries
+always include `asn`; `name` and `domain` are omitted when the ASN index has no
+matching value. ASN lookup is capped at 1000 routes. `type` echoes the
+normalized (lowercased) lookup type. `request_id` promotes this result via
+`/api/report/promote` (`kind: "bgp"`).
 
 ---
 

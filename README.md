@@ -20,7 +20,7 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 ## Features
 
 - Multi-node ping — all nodes probed in parallel, results in a single table
-- Traceroute — user selects source node. Output streamed in real time via SSE. Each hop IP is enriched with ASN and operator name from the ipinfo dataset.
+- Traceroute — user selects source node. Output streamed in real time via SSE. Each hop IP is enriched with ASN and operator name from the canonical GeoIP dataset.
 - HTTP(S) check — all nodes probed in parallel, redirects not followed, TLS certificate verified
 - Port check — TCP connect with open/closed/filtered status
 - DNS lookup — queries multiple resolvers in parallel and returns clean grouped results (shows how many resolvers returned each record)
@@ -35,7 +35,7 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 ```
 main.go               master entry point
 internal/bgp/         BGP table: radix trie, JSON loader, hot-reload
-internal/geoip/       ipinfo CSV loader, radix trie, ASN index
+internal/geoip/       canonical CSV loader, radix trie, ASN index
 internal/handler/     HTTP handlers and agent proxy
 internal/nodes/       node registry
 internal/ratelimit/   token bucket rate limiter
@@ -60,7 +60,7 @@ web/js/app.js         frontend logic
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system design and decisions
 - [docs/API.md](docs/API.md) — HTTP API reference
 - [docs/bgp-data.md](docs/bgp-data.md) — MRT format, conversion, update process
-- [docs/GeoIp.md](docs/GeoIp.md) — runtime GeoIP and canonical candidate preparation
+- [docs/GeoIp.md](docs/GeoIp.md) — offline canonical workflow and runtime loading
 - [CONTRIBUTING.md](CONTRIBUTING.md) — adding nodes, contributing patches
 - [CHANGELOG](CHANGELOG) — version history
 - [SECURITY.md](SECURITY.md) — reporting vulnerabilities

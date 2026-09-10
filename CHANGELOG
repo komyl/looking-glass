@@ -4,6 +4,7 @@ version 1.4 (2026-09-09)
 feature:
   - geoip: add an offline canonical GeoIP candidate workflow combining MaxMind Country, MaxMind ASN, and IPinfo Lite into the established eight-column CSV/CSV.GZ format
   - geoip: partition canonical output at every selected source-prefix boundary and apply precedence independently per field instead of merging by prefix base address
+  - geoip: load one published canonical artifact through `GEOIP_PATH` and reject obsolete `GEOIP_PATH2` configuration
 docs:
   - tooling: clarify that agent and offline data-preparation implementations under private `cmd/` tooling are operationally documented but are not part of the public source checkout
 

@@ -2,7 +2,9 @@
 
 ## Current Master runtime
 
-The master enriches BGP IP lookups with location and operator data from an ipinfo Lite CSV file. The file is not included in the repository and must be obtained separately from ipinfo.io.
+The Master loads one published canonical GeoIP CSV or CSV.GZ artifact through
+`GEOIP_PATH`. The artifact is prepared offline from MaxMind Country, MaxMind
+ASN, and IPinfo Lite inputs. It is not included in the repository.
 
 Accepted formats: plain CSV (`.csv`) or gzip-compressed CSV (`.csv.gz`).
 The Master does not read MaxMind MMDB files directly.
@@ -19,15 +21,44 @@ network,country,country_code,continent,continent_code,asn,as_name,as_domain
 Set the `GEOIP_PATH` environment variable in the master's service unit:
 
 ```
-Environment=GEOIP_PATH=/opt/ipinfo/ipinfo_lite.csv.gz
+Environment=GEOIP_PATH=<PUBLISHED_CANONICAL_GEOIP_PATH>
 ```
 
-Multiple sources may be specified using `GEOIP_PATH` and `GEOIP_PATH2`.
-The second source takes precedence for fields present in both.
+Replace the placeholder with the operator-selected published artifact path.
+The built-in default remains
+`/var/lib/looking-glass/ipinfo_lite.csv.gz`, but the file at that path must use
+the canonical schema above.
 
-Merging is performed per-field. Only non-empty fields from a later source override values from earlier sources. Empty fields are left unchanged.
+`GEOIP_PATH2` is no longer supported. Any non-empty value is invalid
+configuration and stops Master startup explicitly; it is not ignored or used
+as a second source.
 
-If the file is missing or unreadable at startup, the master logs a warning and continues without GeoIP. BGP lookups still work; the `geo` and `aspath_enriched` fields are omitted from responses.
+## Runtime loading boundary
+
+```text
+GEOIP_PATH
+→ one published canonical CSV/CSV.GZ artifact
+→ strict all-or-nothing structural load
+→ Master GeoIP DB
+```
+
+The runtime loader requires the exact header above, exactly eight fields in
+every record, valid CIDR syntax in every `network` field, and complete
+CSV/GZIP consumption. Physical blank lines outside quoted CSV data are also
+rejected. It builds the trie and ASN index in an unpublished snapshot and
+installs the database only after the complete artifact reaches clean EOF.
+
+If the artifact is missing, unreadable, or fails one of these structural
+checks, the complete GeoIP database is rejected. The Master logs the failure
+and continues with GeoIP disabled. BGP route lookup still works, per-route
+`geo` is absent, the successful BGP response retains
+`"aspath_enriched": null`, and `/api/ip-info` returns `{}`.
+
+The Master does not re-read the provider sources or independently establish
+source precedence, source-boundary coverage, canonical ordering,
+duplicate/overlap rejection, deterministic generation, source-backed field
+correctness, artifact identity, or publication integrity. Those guarantees
+belong to the offline validation and publication boundary below.
 
 ## Offline canonical candidate generation
 
@@ -75,8 +106,8 @@ builder streams IPinfo and output records, uses bounded resource controls, and
 does not expand address space one IP at a time. It refuses to overwrite an
 existing requested candidate path.
 
-Candidate generation is offline only. It does not replace current GeoIP data,
-set `GEOIP_PATH` or `GEOIP_PATH2`, or alter the running Master.
+Candidate generation is offline only. It does not replace a published
+artifact, change `GEOIP_PATH`, or alter the running Master.
 
 ## Offline candidate validation and publication
 
@@ -116,8 +147,9 @@ published path and syncs the directory. The old published artifact remains
 until rename, which is the commit point. No older generation is retained after
 commit, and concurrent successful publishers use last-rename-wins semantics.
 
-Candidate validation and publication still do not alter the running Master.
-The runtime canonical-source switch is not implemented.
+Candidate validation and publication do not alter the running Master. A
+successfully published artifact becomes the runtime input only when
+`GEOIP_PATH` names it and the Master is restarted.
 
 ## Internal representation
 
@@ -129,4 +161,7 @@ The loader makes a single pass over the CSV and builds two structures:
 
 ## Updating the current runtime
 
-Replace the file at `GEOIP_PATH` and restart the service. There is no hot-reload for GeoIP data — a restart is required.
+Generate a candidate, validate it against the three sources, and publish it
+through the fail-closed workflow above. Ensure `GEOIP_PATH` names that
+published artifact, then restart the Master. There is no hot reload for GeoIP
+data.

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Two deployed service roles. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations. Additional private operator-side tools prepare data offline, including MRT conversion and canonical GeoIP candidate generation; they are not deployed services, and their implementations are not part of the public source checkout.
+Two deployed service roles. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations. Additional private operator-side tools prepare data offline, including MRT conversion and canonical GeoIP generation, validation, and publication; they are not deployed services, and their implementations are not part of the public source checkout.
 
 ```
                      ┌──────────────────────────────┐
@@ -35,25 +35,59 @@ Memory: a full global BGP table (~1.4M prefixes) occupies approximately 2 GB RSS
 
 ## GeoIP
 
-The current Master loads ipinfo Lite CSV into the same binary radix trie structure as BGP routes. A hash map (`map[string]*Record`) is built alongside it in a single pass, keyed by ASN string (`AS15169`), for O(1) operator name resolution during BGP response enrichment.
+The private offline GeoIP pipeline consumes MaxMind Country, MaxMind ASN, and
+IPinfo Lite and produces the runtime artifact through this boundary:
+
+```text
+source files
+→ canonical builder
+→ canonical eight-column CSV/CSV.GZ candidate
+→ independent source-backed validator
+→ fail-closed publication
+→ published canonical artifact
+```
+
+The schema is exactly:
+
+```text
+network,country,country_code,continent,continent_code,asn,as_name,as_domain
+```
 
 MaxMind MMDB was not adopted as a Master runtime input format. An earlier runtime-oriented pure Go reader correctly parsed metadata and traversed the trie, but triggered goroutine stack overflow on deeply nested pointer chains in the data section. The CSV runtime loader remained simpler and continued to use the existing trie infrastructure.
 
-The private offline `geoipbuilder` now consumes MaxMind Country and ASN MMDB
-together with IPinfo Lite CSV/CSV.GZ. It partitions output at the union of
-source-prefix boundaries and writes the repository-compatible canonical CSV
-or CSV.GZ schema. This does not change the Master loader: current runtime
-configuration still uses `GEOIP_PATH` and optional `GEOIP_PATH2`.
+The offline builder partitions output at the union of source-prefix boundaries
+and applies precedence independently per field. The validator separately
+reconstructs those boundaries and expected values, and rejects structural,
+ordering, duplicate, overlap, coverage, source-semantic, and deterministic
+serialization failures.
 
-The same offline tool validates a candidate structurally and independently
-re-derives its boundary partition and field values from all three sources.
-It rejects a published path that names the same filesystem object as a source
-or the candidate. Publication copies the exact validated bytes into a
+Publication rejects a destination that names the same filesystem object as a
+source or candidate. It copies the exact validated bytes into a
 destination-local staging file, syncs and closes it, atomically renames it
 over the published path, and syncs the directory. Validation or pre-rename
 failure preserves the previous published artifact. No older generation is
-retained after a successful rename. The Master runtime canonical-source
-switch remains separate future work.
+retained after a successful rename.
+
+At runtime, `GEOIP_PATH` supplies exactly one published canonical CSV or
+CSV.GZ artifact. A non-empty `GEOIP_PATH2` is invalid configuration and stops
+Master startup; the Master neither ignores it nor performs a runtime
+multi-source merge. The runtime loader requires the exact schema, exact field
+count, valid CIDRs, and complete CSV/GZIP input, including rejection of
+physical blank lines outside quoted data. It builds one unpublished snapshot
+and installs it only after clean EOF. A detected load failure rejects the
+complete GeoIP database, is logged, and leaves the Master running without
+GeoIP enrichment.
+
+The installed snapshot uses IPv4 and IPv6 binary radix tries. A hash map
+(`map[string]*Record`) is built alongside them in a single pass, keyed by ASN
+string (`AS15169`), for O(1) operator name resolution during BGP response
+enrichment. GeoIP has no hot reload.
+
+The runtime structural load does not repeat the offline source-semantic or
+publication gate. Source precedence, boundary reconstruction, canonical
+ordering, duplicate/overlap rejection, deterministic generation, source-backed
+field correctness, artifact identities, and publication integrity remain the
+offline pipeline's responsibility.
 
 ---
 
