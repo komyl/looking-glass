@@ -3,6 +3,7 @@ package geoip
 import (
 	"compress/gzip"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -39,14 +40,42 @@ type DB struct {
 	current atomic.Pointer[snapshot]
 }
 
-func Open(paths ...string) (*DB, error) {
+type csvQuoteState uint8
+
+const (
+	csvFieldStart csvQuoteState = iota
+	csvUnquoted
+	csvQuoted
+	csvAfterQuote
+)
+
+var errBlankCSVLine = errors.New("blank CSV line")
+
+type csvLineReader struct {
+	reader      io.Reader
+	lineSize    int
+	lineEndsCR  bool
+	state       csvQuoteState
+	terminalErr error
+}
+
+var canonicalHeader = [...]string{
+	"network",
+	"country",
+	"country_code",
+	"continent",
+	"continent_code",
+	"asn",
+	"as_name",
+	"as_domain",
+}
+
+func Open(path string) (*DB, error) {
 	db := &DB{}
 	snap := &snapshot{asnIdx: make(map[string]*Record, 100000)}
 
-	for _, path := range paths {
-		if err := db.loadFile(path, snap); err != nil {
-			return nil, err
-		}
+	if err := db.loadFile(path, snap); err != nil {
+		return nil, err
 	}
 
 	db.current.Store(snap)
@@ -70,32 +99,40 @@ func (db *DB) loadFile(path string, snap *snapshot) error {
 		r = gz
 	}
 
-	cr := csv.NewReader(r)
+	cr := csv.NewReader(&csvLineReader{reader: r})
 	cr.ReuseRecord = false
 
-	if _, err := cr.Read(); err != nil {
+	header, err := cr.Read()
+	if err != nil {
 		return fmt.Errorf("header: %w", err)
 	}
+	if len(header) != len(canonicalHeader) {
+		return fmt.Errorf("header: got %q, want %q", header, canonicalHeader)
+	}
+	for i, field := range canonicalHeader {
+		if header[i] != field {
+			return fmt.Errorf("header: got %q, want %q", header,
+				canonicalHeader)
+		}
+	}
 
-	skipped := 0
-	for {
+	for record := 2; ; record++ {
 		row, err := cr.Read()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			skipped++
-			continue
+			return fmt.Errorf("record %d: %w", record, err)
 		}
-		if len(row) < 8 {
-			skipped++
-			continue
+		if len(row) != len(canonicalHeader) {
+			return fmt.Errorf("record %d: got %d fields, want %d", record,
+				len(row), len(canonicalHeader))
 		}
 
 		_, ipnet, err := net.ParseCIDR(row[0])
 		if err != nil {
-			skipped++
-			continue
+			return fmt.Errorf("record %d: invalid network %q: %w", record,
+				row[0], err)
 		}
 
 		rec := &Record{
@@ -108,12 +145,8 @@ func (db *DB) loadFile(path string, snap *snapshot) error {
 			ASDomain:      row[7],
 		}
 
-		if existing := snap.lookupIP(ipnet.IP); existing != nil {
-    existing.merge(rec)
-} else {
-    snap.insert(ipnet, rec)
-    snap.count++
-}
+		snap.insert(ipnet, rec)
+		snap.count++
 
 		if rec.ASN != "" {
 			if _, exists := snap.asnIdx[rec.ASN]; !exists {
@@ -122,8 +155,73 @@ func (db *DB) loadFile(path string, snap *snapshot) error {
 		}
 	}
 
-	log.Printf("[geoip] loaded from %s (skipped %d)", path, skipped)
+	log.Printf("[geoip] loaded %d prefixes from %s", snap.count, path)
 	return nil
+}
+
+func (r *csvLineReader) Read(data []byte) (int, error) {
+	if r.terminalErr != nil {
+		return 0, r.terminalErr
+	}
+
+	n, readErr := r.reader.Read(data)
+	for i, value := range data[:n] {
+		if value == '\n' && r.state != csvQuoted &&
+			(r.lineSize == 0 || (r.lineSize == 1 && r.lineEndsCR)) {
+			r.terminalErr = errBlankCSVLine
+			if readErr != nil && readErr != io.EOF {
+				r.terminalErr = errors.Join(r.terminalErr, readErr)
+			}
+			return i, r.terminalErr
+		}
+		r.consume(value)
+		if value == '\n' {
+			r.lineSize = 0
+			r.lineEndsCR = false
+			continue
+		}
+		r.lineSize++
+		r.lineEndsCR = value == '\r'
+	}
+	return n, readErr
+}
+
+func (r *csvLineReader) consume(value byte) {
+	// Track only enough state to preserve quoted physical newlines.
+	// encoding/csv remains authoritative for CSV grammar.
+	if value == '\n' && r.state != csvQuoted {
+		r.state = csvFieldStart
+		return
+	}
+
+	switch r.state {
+	case csvFieldStart:
+		switch value {
+		case '"':
+			r.state = csvQuoted
+		case ',':
+		default:
+			r.state = csvUnquoted
+		}
+	case csvUnquoted:
+		if value == ',' {
+			r.state = csvFieldStart
+		}
+	case csvQuoted:
+		if value == '"' {
+			r.state = csvAfterQuote
+		}
+	case csvAfterQuote:
+		switch value {
+		case '"':
+			r.state = csvQuoted
+		case ',':
+			r.state = csvFieldStart
+		case '\r':
+		default:
+			r.state = csvUnquoted
+		}
+	}
 }
 
 func (s *snapshot) insert(ipnet *net.IPNet, rec *Record) {
@@ -200,28 +298,4 @@ func CountryFlag(code string) string {
 	r1 := rune(code[0]-'A') + 0x1F1E6
 	r2 := rune(code[1]-'A') + 0x1F1E6
 	return string([]rune{r1, r2})
-}
-
-func (r *Record) merge(other *Record) {
-	if other.Country != "" {
-		r.Country = other.Country
-	}
-	if other.CountryCode != "" {
-		r.CountryCode = other.CountryCode
-	}
-	if other.Continent != "" {
-		r.Continent = other.Continent
-	}
-	if other.ContinentCode != "" {
-		r.ContinentCode = other.ContinentCode
-	}
-	if other.ASN != "" {
-		r.ASN = other.ASN
-	}
-	if other.ASName != "" {
-		r.ASName = other.ASName
-	}
-	if other.ASDomain != "" {
-		r.ASDomain = other.ASDomain
-	}
 }

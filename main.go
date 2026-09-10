@@ -25,24 +25,23 @@ var webFS embed.FS
 func main() {
 	bgpPath := envOr("BGP_DATA_PATH", "/var/lib/looking-glass/bgp.json")
 	listenAddr := envOr("LISTEN_ADDR", "127.0.0.1:8082")
+	if os.Getenv("GEOIP_PATH2") != "" {
+		log.Fatal("[geoip] invalid configuration: GEOIP_PATH2 is no longer " +
+			"supported; configure one canonical CSV or CSV.GZ source through " +
+			"GEOIP_PATH")
+	}
 
 	store := bgp.NewStore(bgpPath)
 	store.Start()
 	nodes.StartHealthChecker()
 
 	var geo *geoip.DB
-geoPaths := []string{
-	envOr("GEOIP_PATH", "/var/lib/looking-glass/ipinfo_lite.csv.gz"),
-}
-if p2 := os.Getenv("GEOIP_PATH2"); p2 != "" {
-	geoPaths = append(geoPaths, p2)
-}
-
-if g, err := geoip.Open(geoPaths...); err != nil {
-	log.Printf("[geoip] skipped: %v", err)
-} else {
-	geo = g
-}
+	geoPath := envOr("GEOIP_PATH", "/var/lib/looking-glass/ipinfo_lite.csv.gz")
+	if g, err := geoip.Open(geoPath); err != nil {
+		log.Printf("[geoip] skipped: %v", err)
+	} else {
+		geo = g
+	}
 
 	rl := ratelimit.New(20, 5)
 	promoteRL := ratelimit.NewPerHour(10, 3)
