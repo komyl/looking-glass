@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -129,7 +129,7 @@ func (db *DB) loadFile(path string, snap *snapshot) error {
 				len(row), len(canonicalHeader))
 		}
 
-		_, ipnet, err := net.ParseCIDR(row[0])
+		prefix, err := netip.ParsePrefix(row[0])
 		if err != nil {
 			return fmt.Errorf("record %d: invalid network %q: %w", record,
 				row[0], err)
@@ -145,7 +145,7 @@ func (db *DB) loadFile(path string, snap *snapshot) error {
 			ASDomain:      row[7],
 		}
 
-		snap.insert(ipnet, rec)
+		snap.insert(prefix.Masked(), rec)
 		snap.count++
 
 		if rec.ASN != "" {
@@ -224,11 +224,10 @@ func (r *csvLineReader) consume(value byte) {
 	}
 }
 
-func (s *snapshot) insert(ipnet *net.IPNet, rec *Record) {
-	ones, _ := ipnet.Mask.Size()
-	root, b := s.rootFor(ipnet.IP)
+func (s *snapshot) insert(prefix netip.Prefix, rec *Record) {
+	root, b := s.rootFor(prefix.Addr())
 	node := root
-	for i := 0; i < ones; i++ {
+	for i := 0; i < prefix.Bits(); i++ {
 		bit := (b[i/8] >> (7 - uint(i%8))) & 1
 		if node.children[bit] == nil {
 			node.children[bit] = &trieNode{}
@@ -238,11 +237,11 @@ func (s *snapshot) insert(ipnet *net.IPNet, rec *Record) {
 	node.rec = rec
 }
 
-func (s *snapshot) lookupIP(ip net.IP) *Record {
-	root, b, bits := s.rootForIP(ip)
+func (s *snapshot) lookupIP(ip netip.Addr) *Record {
+	root, b := s.rootFor(ip)
 	node := root
 	var best *Record
-	for i := 0; i < bits && node != nil; i++ {
+	for i := 0; i < ip.BitLen() && node != nil; i++ {
 		if node.rec != nil {
 			best = node.rec
 		}
@@ -255,19 +254,13 @@ func (s *snapshot) lookupIP(ip net.IP) *Record {
 	return best
 }
 
-func (s *snapshot) rootFor(ip net.IP) (*trieNode, []byte) {
-	if v4 := ip.To4(); v4 != nil {
-		return &s.root4, v4
+func (s *snapshot) rootFor(ip netip.Addr) (*trieNode, []byte) {
+	if ip.Is4() {
+		b := ip.As4()
+		return &s.root4, b[:]
 	}
-	return &s.root6, ip.To16()
-}
-
-func (s *snapshot) rootForIP(ip net.IP) (*trieNode, []byte, int) {
-	if v4 := ip.To4(); v4 != nil {
-		return &s.root4, v4, 32
-	}
-	b := ip.To16()
-	return &s.root6, b, 128
+	b := ip.As16()
+	return &s.root6, b[:]
 }
 
 func (db *DB) Lookup(ipStr string) *Record {
@@ -275,8 +268,8 @@ func (db *DB) Lookup(ipStr string) *Record {
 	if snap == nil {
 		return nil
 	}
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
+	ip, err := netip.ParseAddr(ipStr)
+	if err != nil {
 		return nil
 	}
 	return snap.lookupIP(ip)
