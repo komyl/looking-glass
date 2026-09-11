@@ -2,7 +2,10 @@
 
 A self-hosted network looking glass written in Go. Zero external runtime dependencies. Designed for ISPs, data centers, and network operators who need full infrastructure autonomy.
 
-Probes are distributed across multiple measurement nodes. The master orchestrates, the agents execute. BGP routing data is loaded from local MRT dumps and enriched with GeoIP and AS operator information at query time.
+Probes are distributed across multiple measurement nodes. The master
+orchestrates, and the agents execute. BGP routing data is converted from a
+local MRT snapshot into the JSON consumed by the Master, then enriched with
+GeoIP and AS operator information at query time.
 
 ## Quick start
 
@@ -30,7 +33,9 @@ See [INSTALL.md](INSTALL.md) for full deployment instructions.
 - Shareable results — "Copy Link" button available on all tools. Generated links can auto-run the check when opened (`run=1`)
 - Permanent Link — freezes the actual result a check produced and serves it back, read-only, from a stored copy for 24 hours
 
-## Source layout
+## Source and tooling layout
+
+The public GitHub checkout contains the Master/runtime source:
 
 ```
 main.go               master entry point
@@ -46,6 +51,24 @@ web/index.html        main HTML file
 web/css/style.css     extracted styles
 web/js/app.js         frontend logic 
 ```
+
+An authorized operator checkout can additionally contain these private,
+ignored tool implementations:
+
+```text
+cmd/agent/             measurement-node service
+cmd/mrt2json/          offline MRT-to-BGP-JSON converter
+cmd/geoipbuilder/      offline GeoIP builder, validator, and publisher
+```
+
+Those `cmd/` implementations are intentionally absent from the public GitHub
+checkout. Public documentation describes their roles and operational
+interfaces without distributing their source or adding placeholder files.
+
+The complete `web/` tree is embedded through `//go:embed web`. Frontend source
+changes therefore require a Master rebuild and restart before they are served.
+The detailed private-tool and filesystem/data-role maps are in
+[INSTALL.md](INSTALL.md#filesystem-and-data-layout).
 
 ## Requirements
 

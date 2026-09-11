@@ -2,7 +2,11 @@
 
 ## Overview
 
-Two deployed service roles. The **master** serves the UI, holds the BGP table, and proxies probe requests to agents. The **agent** runs on every measurement node and executes network operations. Additional private operator-side tools prepare data offline, including MRT conversion and canonical GeoIP generation, validation, and publication; they are not deployed services, and their implementations are not part of the public source checkout.
+Two deployed service roles. The **master** serves the UI, holds the BGP table,
+and proxies probe requests to agents. The **agent** runs on every measurement
+node and executes network operations. Private operator-side `mrt2json` and
+`geoipbuilder` tools prepare data offline; they are not deployed services, and
+their `cmd/` implementations are not part of the public source checkout.
 
 ```
                      ┌──────────────────────────────┐
@@ -23,7 +27,17 @@ The master and agents communicate over private networking. The agent port is nev
 
 ## BGP table
 
-Routes are loaded from a JSON file converted from MRT TABLE_DUMP2 format. The file is read once at startup and again whenever its mtime changes (polled every 5 minutes). During reload, the old snapshot continues serving requests until the new one is fully parsed. The swap is atomic via `sync/atomic.Pointer`.
+Routes are loaded from a JSON file converted from MRT TABLE_DUMP2 format. Raw
+MRT is input to private `mrt2json`, not to the Master. The generated JSON is
+read once at startup and again whenever its mtime changes (polled every five
+minutes). During reload, the old snapshot continues serving requests until
+the new one is fully parsed. A failed reload preserves the old snapshot; a
+successful swap is atomic via `sync/atomic.Pointer`. Normal BGP data updates
+therefore need no Master restart.
+
+The filesystem roles and raw-to-runtime update procedure are owned by
+[INSTALL.md](../INSTALL.md#filesystem-and-data-layout) and
+[bgp-data.md](bgp-data.md).
 
 Prefix lookup uses a binary radix trie — one trie for IPv4, one for IPv6. Each node in the trie holds a slice of routes. IP lookup walks the trie bit by bit and returns the deepest matching node (longest prefix match). Prefix lookup walks exactly `prefix_length` bits and returns routes at that node only.
 
@@ -88,6 +102,13 @@ publication gate. Source precedence, boundary reconstruction, canonical
 ordering, duplicate/overlap rejection, deterministic generation, source-backed
 field correctness, artifact identities, and publication integrity remain the
 offline pipeline's responsibility.
+
+Only the private `geoipbuilder` consumes the provider MMDB/CSV files. The
+Master consumes the published canonical artifact once during startup, so a
+GeoIP data update requires a Master restart after successful publication. The
+filesystem roles and operator procedure are owned by
+[INSTALL.md](../INSTALL.md#filesystem-and-data-layout) and
+[GeoIp.md](GeoIp.md).
 
 ---
 
@@ -187,7 +208,7 @@ All user-supplied targets pass through `internal/validator` before reaching any 
 
 `ValidateNotPrivate` returns the resolved IP alongside the validation result. For the endpoints that connect to the target directly from the master — `ping`, `traceroute`, `ssl` — that IP is pinned and reused for the actual `ping`/`traceroute` subprocess or `tls.DialWithDialer` call instead of re-resolving the hostname a second time. Without this, a DNS-rebinding attacker could return a public address at validation time and a private one moments later when the real connection is made; pinning closes that window since there's only ever one resolution. `SSLCheck` dials the pinned IP but keeps the original hostname as `tls.Config.ServerName`, so SNI and certificate hostname matching are unaffected. One observable side effect: `ping`/`traceroute`'s own output header now shows the resolved IP rather than the original hostname when a hostname target was given — expected, not a bug.
 
-`proxy`, `portcheck`, `ping-all`, and `http-check` also call `ValidateNotPrivate` (via `ValidateHTTPTarget` for `http-check`), but discard the returned IP and forward the original target string to the agent. This is a master-side check only: it rejects literal private-IP targets and whatever a single DNS resolution says at that instant, but it does not close the rebinding window for these four endpoints, because the actual ping/traceroute/portcheck/HTTP request runs on the agent's host, which independently resolves whatever string it receives. Closing that fully requires the same pinning logic inside `cmd/agent`, which isn't present in this checkout — tracked as separate future work, not implemented here.
+`proxy`, `portcheck`, `ping-all`, and `http-check` also call `ValidateNotPrivate` (via `ValidateHTTPTarget` for `http-check`), but discard the returned IP and forward the original target string to the agent. This is a master-side check only: it rejects literal private-IP targets and whatever a single DNS resolution says at that instant, but it does not close the rebinding window for these four endpoints, because the actual ping/traceroute/portcheck/HTTP request runs on the agent's host, which independently resolves whatever string it receives. Closing that fully requires the same pinning logic inside private `cmd/agent` tooling, whose implementation is absent from the public GitHub checkout — tracked as separate future work, not implemented here.
 
 `Proxy` and `PortCheck` return a fixed `"agent unreachable"` message on agent-connection failure, with none of the underlying error text included — there is nothing in that response to sanitize or leak, regardless of what shape the underlying network error takes.
 

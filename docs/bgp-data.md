@@ -2,7 +2,8 @@
 
 ## Format
 
-The master loads BGP routes from a flat JSON file produced by the `mrt2json` converter.
+The Master loads BGP routes from a flat JSON file produced by the private
+`mrt2json` converter. It never reads raw MRT data directly.
 
 ```json
 {
@@ -21,9 +22,41 @@ The master loads BGP routes from a flat JSON file produced by the `mrt2json` con
 }
 ```
 
+## Data flow and path roles
+
+The source file and converter location are operator-selected. The generated
+JSON path is selected by `BGP_DATA_PATH`:
+
+```text
+<bgp-source-dir>/latest-bview.gz
+    |
+    v
+  mrt2json
+    |
+    v
+BGP_DATA_PATH
+    |
+    v
+Master BGP store
+```
+
+`latest-bview.gz` is the raw/provider input to the private converter.
+`BGP_DATA_PATH` identifies the authoritative generated runtime artifact that
+the Master consumes. Its implementation-defined default is:
+
+```ini
+BGP_DATA_PATH=/var/lib/looking-glass/bgp.json
+```
+
+The private converter consumes the raw file; the Master consumes only the
+JSON. See [INSTALL.md](../INSTALL.md#filesystem-and-data-layout) for the
+filesystem roles and source-defined defaults.
+
 ## Obtaining MRT data
 
-RIPE RIS provides full RIB snapshots updated every 8 hours:
+RIPE RIS provides full RIB snapshots updated every eight hours. Obtain the
+selected snapshot from the provider and transfer it to the system that runs
+the converter if necessary:
 
 ```sh
 wget https://data.ris.ripe.net/rrc00/latest-bview.gz
@@ -43,30 +76,49 @@ wget http://archive.routeviews.org/bgpdata/$(date +%Y.%m)/RIBS/rib.$(date +%Y%m%
 distributed in the public source checkout. Its operational interface is:
 
 ```sh
-./mrt2json latest-bview.gz /var/lib/looking-glass/bgp.json
+mrt2json <bgp-source-dir>/latest-bview.gz <bgp-json-path>
 ```
 
-The converter reads TABLE_DUMP2 format, deduplicates prefixes (first-seen peer wins), skips malformed records, and writes the JSON file atomically (write to `.tmp`, then rename). Processing a full table takes 10–15 minutes.
+Set `BGP_DATA_PATH` to `<bgp-json-path>`, or write to the built-in default
+`/var/lib/looking-glass/bgp.json`.
+
+The converter reads TABLE_DUMP2 format, deduplicates prefixes (first-seen peer
+wins), skips malformed records, and replaces the requested JSON through a
+destination-adjacent `.tmp` file and rename. That `.tmp` file is temporary
+staging, not an alternative runtime artifact. Processing a full table takes
+10–15 minutes.
 
 Output size: ~260 MB for a full global table (~1.4M unique prefixes).
 
 ## Hot-reload
 
-The master polls the file's mtime every 5 minutes. When the mtime advances, the file is re-read and a new snapshot is built. The old snapshot continues serving requests until the new one is atomically swapped in via `sync/atomic.Pointer`. There is no downtime during reload.
+The Master polls the BGP JSON selected by `BGP_DATA_PATH` every five minutes.
+When its mtime advances, the file is re-read and a new snapshot is built
+before publication. The old snapshot continues serving requests until the new
+one is atomically swapped in via `sync/atomic.Pointer`. A load failure leaves
+the old snapshot active. There is no downtime during a successful reload.
 
-To force an immediate reload:
-
-```sh
-systemctl restart looking-glass
-```
+A normal BGP data refresh requires no Master restart solely for the data
+update. Replacing `latest-bview.gz` alone also causes no reload because the
+Master does not consume that file; conversion and publication of `bgp.json`
+must complete first.
 
 ## Updating on a schedule
 
-The master node has no external internet access. BGP data must be obtained externally and transferred to the server. A typical workflow:
+The complete update procedure is:
 
-1. On an external machine with internet access, download the latest MRT dump and run `mrt2json`.
-2. Transfer the resulting `bgp.json` to `/var/lib/looking-glass/bgp.json` on the master.
-3. The service reloads automatically within 5 minutes.
+1. Obtain the selected MRT snapshot from the provider.
+2. Place or replace it at an operator-selected raw-input path such as
+   `<bgp-source-dir>/latest-bview.gz`.
+3. Run the operator-supplied private `mrt2json` converter with that raw input
+   and the JSON selected by `BGP_DATA_PATH` as its output.
+4. Allow the Master to detect the successfully replaced JSON and reload it on
+   the five-minute polling cycle.
+
+Do not create persistent variants such as `bgp-final.json`,
+`bgp-new-final.json`, or `bgp-old2.json`. The authoritative runtime path
+is the path selected by `BGP_DATA_PATH`; its built-in default is
+`/var/lib/looking-glass/bgp.json`.
 
 ## Why next-hop is not shown
 

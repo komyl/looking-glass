@@ -9,6 +9,18 @@ ASN, and IPinfo Lite inputs. It is not included in the repository.
 Accepted formats: plain CSV (`.csv`) or gzip-compressed CSV (`.csv.gz`).
 The Master does not read MaxMind MMDB files directly.
 
+Provider paths are operator-selected. For example, one source directory can
+contain:
+
+- `<geoip-source-dir>/GeoLite2-Country.mmdb`;
+- `<geoip-source-dir>/GeoLite2-ASN.mmdb`;
+- `<geoip-source-dir>/ipinfo_lite.csv.gz`.
+
+Only the private `geoipbuilder` consumes the three provider inputs. The Master
+consumes only the published canonical artifact selected by `GEOIP_PATH`. See
+[INSTALL.md](../INSTALL.md#filesystem-and-data-layout) for filesystem roles
+and source-defined defaults.
+
 ## Runtime and canonical CSV schema
 
 ```
@@ -18,20 +30,19 @@ network,country,country_code,continent,continent_code,asn,as_name,as_domain
 
 ## Configuration
 
-Set the `GEOIP_PATH` environment variable in the master's service unit:
+Set the published artifact path explicitly:
 
+```ini
+GEOIP_PATH=<published-canonical-geoip-path>
 ```
-Environment=GEOIP_PATH=<PUBLISHED_CANONICAL_GEOIP_PATH>
-```
-
-Replace the placeholder with the operator-selected published artifact path.
-The built-in default remains
-`/var/lib/looking-glass/ipinfo_lite.csv.gz`, but the file at that path must use
-the canonical schema above.
 
 `GEOIP_PATH2` is no longer supported. Any non-empty value is invalid
 configuration and stops Master startup explicitly; it is not ignored or used
-as a second source.
+as a second source. Keep it unset. The source retains
+`/var/lib/looking-glass/ipinfo_lite.csv.gz` as a legacy fallback when
+`GEOIP_PATH` is unset. Despite that filename, the fallback must contain the
+same canonical schema; it is not an IPinfo provider input or a second runtime
+source.
 
 ## Runtime loading boundary
 
@@ -72,10 +83,11 @@ Its implementation under `cmd/` is not distributed in the public GitHub
 checkout, but its operational interface is:
 
 ```sh
-geoipbuilder -country <GeoLite2-Country.mmdb> \
-  -asn <GeoLite2-ASN.mmdb> \
-  -ipinfo <ipinfo_lite.csv|ipinfo_lite.csv.gz> \
-  -output <candidate.csv|candidate.csv.gz>
+geoipbuilder \
+  -country <geoip-source-dir>/GeoLite2-Country.mmdb \
+  -asn <geoip-source-dir>/GeoLite2-ASN.mmdb \
+  -ipinfo <geoip-source-dir>/ipinfo_lite.csv.gz \
+  -output <temporary-candidate.csv.gz>
 ```
 
 The output uses the eight-column schema above. Logically, `network` is the
@@ -103,8 +115,10 @@ records fail the build.
 
 Output is deterministic, ordered, canonical, unique, and non-overlapping. The
 builder streams IPinfo and output records, uses bounded resource controls, and
-does not expand address space one IP at a time. It refuses to overwrite an
-existing requested candidate path.
+does not expand address space one IP at a time. Choose a temporary
+operator-controlled candidate path. The builder refuses to overwrite it if it
+already exists, and its directory must satisfy the builder's path-safety
+requirements.
 
 Candidate generation is offline only. It does not replace a published
 artifact, change `GEOIP_PATH`, or alter the running Master.
@@ -114,10 +128,11 @@ artifact, change `GEOIP_PATH`, or alter the running Master.
 Validation requires the original three sources and a completed candidate:
 
 ```sh
-geoipbuilder -country <GeoLite2-Country.mmdb> \
-  -asn <GeoLite2-ASN.mmdb> \
-  -ipinfo <ipinfo_lite.csv|ipinfo_lite.csv.gz> \
-  -candidate <candidate.csv|candidate.csv.gz>
+geoipbuilder \
+  -country <geoip-source-dir>/GeoLite2-Country.mmdb \
+  -asn <geoip-source-dir>/GeoLite2-ASN.mmdb \
+  -ipinfo <geoip-source-dir>/ipinfo_lite.csv.gz \
+  -candidate <temporary-candidate.csv.gz>
 ```
 
 The validator rejects malformed or truncated CSV/GZIP, a non-exact header or
@@ -130,11 +145,12 @@ uncompressed CSV content.
 Add `-publish` to replace an offline published artifact only after validation:
 
 ```sh
-geoipbuilder -country <GeoLite2-Country.mmdb> \
-  -asn <GeoLite2-ASN.mmdb> \
-  -ipinfo <ipinfo_lite.csv|ipinfo_lite.csv.gz> \
-  -candidate <candidate.csv|candidate.csv.gz> \
-  -publish <published.csv|published.csv.gz>
+geoipbuilder \
+  -country <geoip-source-dir>/GeoLite2-Country.mmdb \
+  -asn <geoip-source-dir>/GeoLite2-ASN.mmdb \
+  -ipinfo <geoip-source-dir>/ipinfo_lite.csv.gz \
+  -candidate <temporary-candidate.csv.gz> \
+  -publish <published-canonical-geoip-path>
 ```
 
 Candidate and published paths must use the same CSV or CSV.GZ format. The
@@ -151,6 +167,12 @@ Candidate validation and publication do not alter the running Master. A
 successfully published artifact becomes the runtime input only when
 `GEOIP_PATH` names it and the Master is restarted.
 
+The candidate and the destination-local publication staging file are
+temporary, non-authoritative working state. They do not belong in the
+persistent filesystem model, and the workflow does not retain an older
+published generation after a successful rename. Do not accumulate `.old`,
+`.backup`, `.final2`, or similar copies in the canonical GeoIP directory.
+
 ## Internal representation
 
 The loader makes a single pass over the CSV and builds two structures:
@@ -161,7 +183,20 @@ The loader makes a single pass over the CSV and builds two structures:
 
 ## Updating the current runtime
 
-Generate a candidate, validate it against the three sources, and publish it
-through the fail-closed workflow above. Ensure `GEOIP_PATH` names that
-published artifact, then restart the Master. There is no hot reload for GeoIP
-data.
+The complete update procedure is:
+
+1. Replace or update the three provider inputs at their operator-selected
+   paths.
+2. Build a temporary candidate with the private `geoipbuilder`.
+3. Validate the completed candidate independently against the same three
+   provider inputs.
+4. Publish the validated bytes fail-closed and atomically to
+   `<published-canonical-geoip-path>`.
+5. Set `GEOIP_PATH=<published-canonical-geoip-path>` and ensure `GEOIP_PATH2`
+   is unset.
+6. Restart the Master, then verify successful startup and GeoIP loading.
+7. Remove the temporary candidate after successful publication and
+   verification.
+
+There is no hot reload for GeoIP data. Replacing provider inputs or publishing
+the canonical artifact does not by itself change the in-memory runtime DB.
