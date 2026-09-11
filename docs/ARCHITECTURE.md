@@ -41,7 +41,9 @@ The filesystem roles and raw-to-runtime update procedure are owned by
 
 Prefix lookup uses a binary radix trie — one trie for IPv4, one for IPv6. Each node in the trie holds a slice of routes. IP lookup walks the trie bit by bit and returns the deepest matching node (longest prefix match). Prefix lookup walks exactly `prefix_length` bits and returns routes at that node only.
 
-ASN lookup is a linear scan of an inverted index built at load time: a `map[int][]Route` keyed by ASN. Results are capped at 1000 to prevent excessive memory allocation in responses.
+ASN lookup uses a reverse map index built at load time: a `map[int][]Route`
+keyed by ASN. Lookup is a direct map access, and the returned result slice is
+capped at 1000 routes.
 
 Memory: a full global BGP table (~1.4M prefixes) occupies approximately 2 GB RSS.
 
@@ -141,17 +143,15 @@ checked; the response body is never parsed or trusted.
 A node is marked dead after 2 consecutive failed checks, and live again
 after a single successful one — fast recovery is intentional, since a
 node flapping back should rejoin node lists and `PingAll` immediately
-rather than waiting out a longer confirmation window. At startup, before
-the first check round completes, every node is treated as live; otherwise
-every node list would be empty for the first 12 seconds after every
-restart.
+rather than waiting out a longer confirmation window. At startup, every
+node is treated as live while `StartHealthChecker` runs an immediate first
+check round; subsequent rounds start on the 12-second ticker.
 
 This state lives in `internal/nodes` as a separate ID-keyed tracker
 (`IsLive(id string) bool`, `LiveNodes() []Node`), not as a field on `Node`
-itself: `PingAll` ranges over `nodes.List` and passes `Node` by value into
-per-node goroutines (`go func(idx int, node nodes.Node)`), so a mutable
-field on `Node` would be copied at fan-out time and never observe a later
-update from the checker.
+itself. Node metadata remains immutable while the checker updates shared
+state, and `LiveNodes` filters `nodes.List` in order before returning the
+current metadata copies.
 
 Consumers: `Handler.Nodes` (`GET /api/nodes`) returns `nodes.LiveNodes()`
 instead of `nodes.List` — dead nodes are simply absent, with no change to
@@ -168,15 +168,26 @@ waiting out its full timeout (130s for `Proxy`, 10s for `PortCheck`).
 
 ## Rate limiting
 
-Three layers:
+The system keeps these controls as separate boundaries:
 
-**nginx** — `limit_req_zone` at 20 req/s (general) and 6 req/min (`/api/`). Configured in `nginx.conf` and per-vhost. Returns 429 on breach.
+**nginx request limiting** — an external, operator-configured boundary. The
+generic example in `INSTALL.md` uses 20 requests/second with burst 30 and
+returns 429 on breach; those values are example configuration, not
+application requirements or a claim about production settings.
 
 **Application token bucket** — per IP, 20 req/min sustained, burst of 5. In-process, no Redis. Implemented in `internal/ratelimit`. Entries are cleaned up after 30 minutes of inactivity.
 
-**Per-IP subprocess semaphore** — each IP may hold at most one active subprocess (ping, traceroute, dig) at a time, or one active request via `/api/proxy` or `/api/portcheck`. Implemented via a `sync.Map` of buffered `chan struct{}` with capacity 1, cleaned up after 30 minutes of inactivity. Prevents a single IP from holding multiple long-running processes simultaneously.
+**Per-IP active-request/subprocess semaphore** — each IP may hold at most one
+active subprocess-backed handler request (ping, traceroute, or dig), or one
+active request via `/api/proxy` or `/api/portcheck`. Implemented via a
+`sync.Map` of buffered `chan struct{}` with capacity 1, cleaned up after 30
+minutes of inactivity. It prevents a single IP from holding multiple
+long-running requests simultaneously.
 
-A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent subprocesses across all IPs, and the same semaphore gates `/api/proxy` and `/api/portcheck`.
+A global semaphore (`chan struct{}` with capacity 30) bounds concurrent
+top-level ping, traceroute, and dig handler requests across all IPs, and the
+same semaphore gates `/api/proxy` and `/api/portcheck`. Dig's internal
+resolver fan-out is separately capped at 8 concurrent commands per request.
 
 `/api/bgp` is gated by the application token bucket like every other target-facing endpoint. `/api/myip`, `/api/info`, and `/api/nodes` are deliberately left unthrottled — they're called on every page load, are cheap in-memory lookups, and rate limiting them risks breaking legitimate usage for shared/NAT IPs for negligible security benefit.
 
@@ -186,11 +197,25 @@ A global semaphore (`chan struct{}` with capacity 30) bounds total concurrent su
 
 Two independent storage layers back this feature, not one, because they answer different questions and need different failure behavior at capacity.
 
-The **ephemeral cache** (`internal/report.EphemeralCache`) holds the actual result of every completed check — ping, ping-all, traceroute, portcheck, dns, ssl, bgp, http-check — for exactly 30 minutes, in an in-memory map, single-node/in-process only. There are three independent master/observer nodes and no state is synchronized between them: a promote request against node B for an ID minted by node A simply 404s. Every check writes into this cache once its result is fully known, whether or not anyone ever asks to keep it — a `request_id` JSON field for request/response endpoints, an initial named `request_id` SSE event (sent before any hop/result data, since a streaming client needs it up front) for the streaming ones. This happens unconditionally, independent of `REPORTS_DIR`: the disk layer below can be entirely unavailable and every check still gets a `request_id`.
+The **ephemeral cache** (`internal/report.EphemeralCache`) holds the actual
+result of every completed check — ping, ping-all, traceroute, portcheck, dns,
+ssl, bgp, http-check — with a nominal 30-minute retention age in an in-memory
+map local to one Master process. Cleanup runs every five minutes. `Get` does
+not independently check an entry's age, so an entry can remain promotable
+after 30 minutes until a subsequent sweep removes it. The map is not
+replicated across Master instances. A `request_id` created on one instance is
+unavailable to another unless external routing or session behavior keeps the
+promotion request on the same instance. Every check writes into this cache
+once its result is fully known, whether or not anyone ever asks to keep it — a
+`request_id` JSON field for request/response endpoints, an initial named
+`request_id` SSE event (sent before any hop/result data, since a streaming
+client needs it up front) for the streaming ones. This happens
+unconditionally, independent of `REPORTS_DIR`: the disk layer below can be
+entirely unavailable and every check still gets a `request_id`.
 
 Neither the per-IP subprocess semaphore nor the global 30-slot semaphore bounds how large this cache can grow. `BGP`, `SSLCheck`, `PingAll`, and `HTTPCheckAll` never touch either semaphore at all — `BGP` is a pure trie lookup, `SSLCheck` a direct `tls.Dial`, `PingAll` and `HTTPCheckAll` each fan out with their own 8-way cap — so for those four, the only existing gate is the general 20rpm/burst-5 token bucket, which bounds one IP's rate but not how many distinct IPs can run checks in parallel. And even for the endpoints that do hold a semaphore slot, the slot is released the instant a fast check finishes — long before the 30-minute retention window is up — so concurrency limits don't translate into a bound on how many *completed* results accumulate. The cache therefore carries its own independent cap, 2000 entries, enforced at insert time.
 
-At capacity, the ephemeral cache evicts the single oldest entry to make room. This is safe specifically because of what's actually lost: the result was already delivered to the client in the original response, so evicting the ephemeral copy only means that one check can't be promoted a little earlier than its natural 30-minute expiry — nothing the client already has disappears.
+At capacity, the ephemeral cache evicts the single oldest entry to make room. This is safe specifically because of what's actually lost: the result was already delivered to the client in the original response, so evicting the ephemeral copy only means that one check can't be promoted before the cleanup sweep would remove it — nothing the client already has disappears.
 
 The **persisted store** (`internal/report.Store`) is what `POST /api/report/promote` writes to and `GET /api/report` serves from. Each promotion gets its own freshly generated ID and its own JSON file under `REPORTS_DIR`, kept for 24 hours from a `captured_at` timestamp stored inside the JSON itself — not file mtime, which wouldn't survive a backup/restore or an operator's `touch`. It has the same 2000 cap as the ephemeral cache, but the opposite eviction policy: at capacity, new promotions are rejected outright, never by evicting an existing report. An existing report may be a link someone is looking at right now; deleting it to make room would break that in a way the ephemeral cache's eviction never can, since nothing external depends on an ephemeral entry surviving.
 
@@ -220,6 +245,7 @@ All user-supplied targets pass through `internal/validator` before reaching any 
 
 - Agent endpoints require `X-Agent-Secret` header. The secret is a 32-byte random hex string shared across all nodes.
 - Agent port 9090 is restricted to the master IP via ufw on each agent node.
-- The agent URL and secret are never returned to clients. The `/api/nodes` endpoint returns only public metadata (ID, name, ISP).
+- The agent URL, IP, and secret are never returned to clients. The
+  `/api/nodes` endpoint returns only public metadata (ID, name, location).
 - The master binary is deployed behind nginx. It binds `127.0.0.1:8082` and is not directly reachable from the internet.
 - Client IP for rate limiting and the "Your IP" display is taken from the second-from-last entry of `X-Forwarded-For` if it has at least two comma-separated entries, falling back to `X-Real-IP`, then `RemoteAddr`. This deployment sits behind a CDN confirmed via packet capture to always append exactly two trusted entries to `X-Forwarded-For` — `[real client IP], [CDN's own hop IP]` — regardless of what a client sends before them, so the second-from-last entry is the CDN's own observation of the real client and cannot be forged by prefixing extra values onto the header.

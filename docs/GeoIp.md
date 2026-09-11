@@ -177,7 +177,9 @@ published generation after a successful rename. Do not accumulate `.old`,
 
 The loader makes a single pass over the CSV and builds two structures:
 
-**Radix trie** — same binary trie implementation used for BGP prefix lookup. IP-to-record lookup is O(32) for IPv4 and O(128) for IPv6.
+**Radix trie** — a separate trie implementation following the same general
+binary-radix design as BGP prefix lookup. IP-to-record lookup is O(32) for
+IPv4 and O(128) for IPv6.
 
 **ASN index** — `map[string]*Record` keyed by ASN string (`AS15169`). Built alongside the trie. Used for O(1) operator name resolution when enriching AS path hops. Only the first record seen for each ASN is stored.
 

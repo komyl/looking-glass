@@ -24,14 +24,22 @@ BGP store statistics.
 {"route_count": 1374785, "bgp_updated": "2026-05-01 00:00 UTC"}
 ```
 
+`bgp_updated` is the UTC time when the Master loaded or reloaded the active
+BGP snapshot. It is not guaranteed to be the MRT capture or provider
+timestamp embedded in the source data.
+
 ---
 
 ### GET /api/nodes
 
-Public metadata for all currently-reachable nodes. Internal URLs and secrets are never included. A node that fails its background health check (see `docs/ARCHITECTURE.md` "Agent liveness") is omitted until it recovers — there is no status field marking it dead, it simply isn't in the list.
+Public metadata for all currently-reachable nodes. Internal IP addresses,
+agent URLs, and secrets are never included. A node that fails its background
+health check (see `docs/ARCHITECTURE.md` "Agent liveness") is omitted until it
+recovers — there is no status field marking it dead, it simply isn't in the
+list. Each returned object contains exactly `id`, `name`, and `location`.
 
 ```json
-[{"id": "node1", "name": "Tehran — ISP", "location": "Tehran", "isp": "ISP Name"}]
+[{"id": "node1", "name": "Tehran — ISP", "location": "Tehran"}]
 ```
 
 ---
@@ -92,7 +100,13 @@ Issues a `GET` to `target` from each node with redirects **not** followed (a 301
 }
 ```
 
-`status` is `ok` (a response was received, whatever its status code) or `error` (the request itself failed). On `error`, `error` carries a classification instead of a raw Go error string: `timeout`, `connection_refused`, `dns_error`, `tls_error`, `connection_failed`, or `invalid_target`.
+`status` is `ok` (a response was received, whatever its status code) or
+`error` (the request itself failed). Agent-origin target/check errors use
+`timeout`, `connection_refused`, `dns_error`, `tls_error`,
+`connection_failed`, or `invalid_target`. Master-side aggregate/transport
+errors use `connection_failed` when the agent request cannot be constructed,
+`agent_unreachable` when the agent call fails, or `invalid_response` when the
+agent response is not valid JSON.
 
 `request_id` promotes this result via `/api/report/promote` (`kind: "http-check"`).
 
@@ -113,6 +127,9 @@ Proxies ping, traceroute, or portcheck from a specific agent.
 
 Params: `node` (required), `action` (`ping`, `traceroute`, or `portcheck`), `target`, and one action-specific param: `count` for ping, `maxhops` for traceroute, `port` for portcheck.
 
+This proxy path strips exact lowercase `http://` or `https://` prefixes and
+discards any path component before validating and forwarding `target`.
+
 For `action=ping` and `action=traceroute`, the same `request_id` SSE event
 convention applies (first event, before any hop line), and the result is
 promotable the same way as the non-proxied endpoints above. `action=portcheck`
@@ -123,7 +140,9 @@ through this endpoint does **not** get a `request_id` — see
 
 ### GET /api/portcheck
 
-TCP port check via a specific agent. `http://` and `https://` prefixes are stripped from target automatically.
+TCP port check via a specific agent. This direct endpoint requires `target`
+to be a bare hostname or IP address accepted by `ValidateTarget`; it does not
+strip URL schemes or paths.
 
 Params: `node`, `target`, `port` (1–65535) — all required.
 
@@ -273,7 +292,7 @@ independent of the general token bucket every other endpoint shares.
 | 400 | `{"error":"invalid request body"}` | body is not valid JSON |
 | 400 | `{"error":"invalid request id"}` | `request_id` is not a 40-character lowercase-hex string |
 | 429 | `{"error":"too many permanent links requested — try again later"}` | promote's own 10/hour-per-IP limit reached |
-| 404 | `{"error":"this result is no longer available to make permanent — please re-run the check"}` | `request_id` is unknown, or its 30-minute ephemeral window has passed |
+| 404 | `{"error":"this result is no longer available to make permanent — please re-run the check"}` | `request_id` is unknown or has been removed by the five-minute cleanup sweep after its nominal 30-minute retention age |
 | 503 | `{"error":"too many active shared links right now — please try again later"}` | 2000 reports are already active on disk (rejected outright, nothing is evicted) |
 | 500 | `{"error":"failed to save permanent link"}` | writing the report to disk failed |
 | 503 | `{"error":"permanent links are unavailable"}` | `REPORTS_DIR` failed to initialize at startup |

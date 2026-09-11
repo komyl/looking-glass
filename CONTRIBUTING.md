@@ -33,8 +33,7 @@ repository.
        ID:       "nodeid",      // lowercase alphanumeric, URL-safe, unique
        Name:     "City — ISP",
        Location: "City",
-       ISP:      "ISP Name",
-       IP:       "<NODE_IP>",   // shown publicly in /api/nodes
+       IP:       "<NODE_IP>",   // internal only, never exposed
        URL:      "http://<NODE_IP>:9090", // internal only, never exposed
    },
    ```
@@ -47,7 +46,11 @@ repository.
 
 ## Rotating the agent secret
 
-Update `AGENT_SECRET` in every node's service file and the `Secret` constant in `internal/nodes/nodes.go`. Rebuild the master. Restart all services. There is no grace period — old and new secrets cannot coexist.
+Update `AGENT_SECRET` for the Master and every agent in a coordinated manner,
+then restart the affected services so they read the new environment value.
+There is no source-code secret constant to edit, and a Master rebuild is not
+required solely for secret rotation. There is no grace period or dual-secret
+support — old and new secrets cannot coexist.
 
 ## Code style
 

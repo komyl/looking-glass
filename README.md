@@ -1,6 +1,9 @@
 # looking-glass
 
-A self-hosted network looking glass written in Go. Zero external runtime dependencies. Designed for ISPs, data centers, and network operators who need full infrastructure autonomy.
+A self-hosted network looking glass written in Go, with no external Go module
+dependencies. Probe functionality relies on the `ping`, `traceroute`, and
+`dig` OS utilities documented in [INSTALL.md](INSTALL.md). Designed for ISPs,
+data centers, and network operators who need full infrastructure autonomy.
 
 Probes are distributed across multiple measurement nodes. The master
 orchestrates, and the agents execute. BGP routing data is converted from a

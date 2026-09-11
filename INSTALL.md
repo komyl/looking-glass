@@ -98,7 +98,7 @@ the implementation; placeholders are not project requirements.
 
 ```sh
 apt update
-apt install -y nginx traceroute dnsutils bgpdump fail2ban ufw
+apt install -y nginx iputils-ping traceroute dnsutils bgpdump fail2ban ufw
 
 mkdir -p /var/lib/looking-glass
 cp looking-glass /usr/local/bin/looking-glass

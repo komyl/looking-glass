@@ -22,6 +22,10 @@ The Master loads BGP routes from a flat JSON file produced by the private
 }
 ```
 
+The current Master decodes but does not use the top-level `timestamp` for
+`/api/info`. Its `bgp_updated` field reports when the active snapshot was
+loaded or reloaded by the Master, not the MRT capture or provider timestamp.
+
 ## Data flow and path roles
 
 The source file and converter location are operator-selected. The generated
@@ -122,4 +126,11 @@ is the path selected by `BGP_DATA_PATH`; its built-in default is
 
 ## Why next-hop is not shown
 
-The MRT dump is collected from a single RIPE RIS peer. Every route's next-hop is the address of that peer, not a routing-relevant address from the perspective of the server running the looking glass. Displaying it would suggest it means something it does not. The kernel FIB (`ip route get`) was evaluated as an alternative but a VPS has only a default route — it returns the gateway IP for every destination. AS Path, origin, and communities are shown instead.
+A selected RIPE RIS collector can contain routes from multiple peers. The
+converter keeps the first record it encounters for each prefix, so the stored
+MRT next-hop belongs to the peer whose record was retained for that prefix.
+It is not a meaningful forwarding next-hop from the Looking Glass Master's
+perspective, and displaying it would imply otherwise. The kernel FIB
+(`ip route get`) was evaluated as an alternative, but a host with only a
+default route returns its gateway for every destination. AS path, origin, and
+communities are shown instead.
